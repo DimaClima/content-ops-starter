@@ -2,7 +2,7 @@ name: Build Travel Assistant APK
 
 on:
   push:
-    branches: [travel-assistant-spain]
+    branches: [main, travel-assistant-spain]
     paths:
       - 'android-app/**'
       - '.github/workflows/build-travel-assistant-apk.yml'
