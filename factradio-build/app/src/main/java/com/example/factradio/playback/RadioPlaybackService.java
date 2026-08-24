@@ -5,7 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.media.browse.MediaBrowser;
-import android.media.browse.MediaBrowserService;
+import android.service.media.MediaBrowserService;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
