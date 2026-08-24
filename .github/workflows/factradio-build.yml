@@ -39,7 +39,7 @@ jobs:
           SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           test -s "$APK"
           "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
-          "$AAPT" dump xmltree "$APK" AndroidManifest.xml > app/build/outputs/apk/release/manifest.txt
+          "$AAPT" dump xmltree --file AndroidManifest.xml "$APK" > app/build/outputs/apk/release/manifest.txt
           grep -q "package: name='com.factradio.app' versionCode='11' versionName='0.6.1'" app/build/outputs/apk/release/badging.txt
           grep -q "targetSdkVersion:'29'" app/build/outputs/apk/release/badging.txt
           grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
