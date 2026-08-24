@@ -24,6 +24,12 @@ android {
         buildConfig true
     }
 
+    lint {
+        // Private sideloaded build: target 29 intentionally keeps v1 signing
+        // installable after the backend token is injected outside public CI.
+        disable 'ExpiredTargetSdkVersion'
+    }
+
     buildTypes {
         release {
             minifyEnabled false
