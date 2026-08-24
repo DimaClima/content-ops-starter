@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ФактРадио — прототип</string>
+    <string name="app_name">ФактРадио</string>
     <string name="music_access_service">Оценка музыки Яндекса</string>
     <string name="now_playing">Сейчас в эфире</string>
     <string name="play">Слушать</string>
