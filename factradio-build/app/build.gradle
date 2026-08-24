@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+def radioApiBaseUrl = providers.gradleProperty("RADIO_API_BASE_URL").orElse("").get()
+def radioAppToken = providers.gradleProperty("RADIO_APP_TOKEN").orElse("").get()
+
+android {
+    namespace 'com.example.factradio'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.factradio.app"
+        minSdk 26
+        targetSdk 29
+        versionCode 10
+        versionName "0.6.0"
+
+        buildConfigField "String", "RADIO_API_BASE_URL", "\"${radioApiBaseUrl}\""
+        buildConfigField "String", "RADIO_APP_TOKEN", "\"${radioAppToken}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

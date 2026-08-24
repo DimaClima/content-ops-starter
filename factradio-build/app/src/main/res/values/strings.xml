@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">ФактРадио — прототип</string>
+    <string name="music_access_service">Оценка музыки Яндекса</string>
+    <string name="now_playing">Сейчас в эфире</string>
+    <string name="play">Слушать</string>
+    <string name="pause">Пауза</string>
+    <string name="next">Дальше</string>
+    <string name="replay">Сначала</string>
+    <string name="sources">Источники</string>
+    <string name="voice_request">Спросить голосом</string>
+    <string name="music_permission">Оценка треков Яндекс Музыки</string>
+</resources>
