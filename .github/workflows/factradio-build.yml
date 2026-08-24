@@ -49,6 +49,9 @@ jobs:
           cp "$APK" app/build/outputs/apk/release/app-install-test.apk
           "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled false app/build/outputs/apk/release/app-install-test.apk
           "$SIGNER" verify --verbose app/build/outputs/apk/release/app-install-test.apk
+          TEST_APK=$(find app/build/outputs/apk/androidTest -name '*-androidTest.apk' | head -1)
+          "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled false "$TEST_APK"
+          "$SIGNER" verify --verbose "$TEST_APK"
 
       - name: Enable KVM acceleration
         run: |
