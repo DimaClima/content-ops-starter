@@ -29,7 +29,7 @@ jobs:
         working-directory: factradio-build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon clean assembleRelease lintRelease assembleReleaseAndroidTest
+          ./gradlew --no-daemon clean assembleRelease lintRelease assembleAndroidTest
 
       - name: Verify APK identity, orientation, and Android Auto declarations
         working-directory: factradio-build
