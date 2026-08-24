@@ -72,6 +72,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     public static final String EXTRA_MUSIC_TARGET = "music_target";
     public static final String EXTRA_MUSIC_COMPLETED = "music_completed";
     public static final String EXTRA_GENERATION_WAIT = "generation_wait";
+    public static final String EXTRA_RECOMMENDATION_PENDING = "recommendation_pending";
 
     private static final int NOTIFICATION_ID = 101;
     private static final String CHANNEL_ID = "fact_radio_playback";
@@ -106,6 +107,9 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private MediaController yandexController;
     private boolean generationWaitMusic;
     private boolean recommendationPending;
+    private boolean waitingForFreshStory;
+    private final AudioInterruptionPolicy audioInterruptionPolicy =
+            new AudioInterruptionPolicy();
 
     private final BroadcastReceiver musicTrackReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -248,6 +252,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private void play() {
         pendingAutoplay = true;
+        audioInterruptionPolicy.onUserPlay();
         if (musicBreak) {
             if (yandexController != null) yandexController.getTransportControls().play();
             updateNotification();
@@ -267,6 +272,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private void pause() {
         pendingAutoplay = false;
+        audioInterruptionPolicy.onUserPauseOrPermanentLoss();
         if (musicBreak && yandexController != null) {
             yandexController.getTransportControls().pause();
         }
@@ -288,9 +294,10 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private void advanceStory() {
         if (queue.isEmpty() || currentIndex + 1 >= queue.size()) {
-            pendingAutoplay = false;
+            pendingAutoplay = true;
+            waitingForFreshStory = true;
             releasePlayer();
-            requestPersonalizedRecommendation();
+            requestPersonalizedRecommendation(true);
             updatePlaybackState();
             updateNotification();
             broadcastState();
@@ -551,6 +558,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
             });
             player.prepare();
             requestAudioFocus();
+            preferenceStore.recordStarted(current);
             player.start();
             mediaSession.setActive(true);
             updatePlaybackState();
@@ -784,13 +792,26 @@ public final class RadioPlaybackService extends MediaBrowserService {
                                 .build())
                         .setOnAudioFocusChangeListener(change -> {
                             if (change == AudioManager.AUDIOFOCUS_LOSS) {
-                                pause();
+                                audioInterruptionPolicy.onUserPauseOrPermanentLoss();
+                                pendingAutoplay = false;
+                                if (player != null) {
+                                    try { player.pause(); } catch (IllegalStateException ignored) {}
+                                }
+                                updatePlaybackState();
+                                updateNotification();
+                                broadcastState();
                                 return;
                             }
                             if (change < 0) {
                                 // Navigation prompts cause only a temporary pause. Do not clear
                                 // pendingAutoplay, so AUDIOFOCUS_GAIN can continue the same story.
+                                boolean currentlyPlaying = false;
                                 if (player != null) {
+                                    try { currentlyPlaying = player.isPlaying(); }
+                                    catch (IllegalStateException ignored) {}
+                                }
+                                if (audioInterruptionPolicy.onTransientLoss(
+                                        pendingAutoplay, currentlyPlaying)) {
                                     try {
                                         player.pause();
                                     } catch (IllegalStateException ignored) {}
@@ -801,7 +822,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
                                 return;
                             }
                             if (change == AudioManager.AUDIOFOCUS_GAIN
-                                    && pendingAutoplay && player != null) {
+                                    && audioInterruptionPolicy.onFocusGain(pendingAutoplay)
+                                    && player != null) {
                                 try {
                                     player.start();
                                 } catch (IllegalStateException ignored) {}
@@ -891,6 +913,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
         state.putExtra(EXTRA_MUSIC_TARGET, musicTarget);
         state.putExtra(EXTRA_MUSIC_COMPLETED, musicCompleted);
         state.putExtra(EXTRA_GENERATION_WAIT, generationWaitMusic);
+        state.putExtra(EXTRA_RECOMMENDATION_PENDING,
+                recommendationPending || waitingForFreshStory);
         sendBroadcast(state);
     }
 
@@ -921,8 +945,19 @@ public final class RadioPlaybackService extends MediaBrowserService {
     }
 
     private void requestPersonalizedRecommendation() {
+        requestPersonalizedRecommendation(false);
+    }
+
+    private void requestPersonalizedRecommendation(boolean queueIsEmpty) {
         if (recommendationPending || !storyClient.isConfigured()
-                || !preferenceStore.reserveAutomaticRecommendation()) return;
+                || !preferenceStore.reserveAutomaticRecommendation(queueIsEmpty)) {
+            if (queueIsEmpty) {
+                waitingForFreshStory = false;
+                pendingAutoplay = false;
+                broadcastState();
+            }
+            return;
+        }
         recommendationPending = true;
         String query = "Подбери новый документальный выпуск по моим интересам: HVAC, энергетика и технологии, "
                 + "новости Испании, мировые новости, история мест, история изобретений и биографии, "
@@ -931,15 +966,29 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 preferenceStore.getVoicePreset(), new RadioApiClient.Callback() {
             @Override public void onSuccess(Episode episode) {
                 recommendationPending = false;
-                if (containsEpisode(episode.getId()) || !preferenceStore.canPlayNow(episode)) return;
+                if (containsEpisode(episode.getId()) || !preferenceStore.canPlayNow(episode)) {
+                    waitingForFreshStory = false;
+                    pendingAutoplay = false;
+                    broadcastState();
+                    return;
+                }
                 int insertion = Math.min(currentIndex + 1, queue.size());
                 queue.add(insertion, episode);
+                if (waitingForFreshStory) {
+                    waitingForFreshStory = false;
+                    currentIndex = insertion;
+                    current = episode;
+                    synthesizeCurrent();
+                }
                 notifyChildrenChanged("factradio_root");
                 broadcastState();
             }
 
             @Override public void onError(String message) {
                 recommendationPending = false;
+                waitingForFreshStory = false;
+                pendingAutoplay = false;
+                broadcastState();
             }
         });
     }
