@@ -13,8 +13,9 @@ android {
         applicationId "com.factradio.app"
         minSdk 26
         targetSdk 29
-        versionCode 10
-        versionName "0.6.0"
+        versionCode 11
+        versionName "0.6.1"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField "String", "RADIO_API_BASE_URL", "\"${radioApiBaseUrl}\""
         buildConfigField "String", "RADIO_APP_TOKEN", "\"${radioAppToken}\""
@@ -41,4 +42,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
 }
