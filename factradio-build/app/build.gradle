@@ -8,6 +8,7 @@ def radioAppToken = providers.gradleProperty("RADIO_APP_TOKEN").orElse("").get()
 android {
     namespace 'com.example.factradio'
     compileSdk 35
+    testBuildType "release"
 
     defaultConfig {
         applicationId "com.factradio.app"
