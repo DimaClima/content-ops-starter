@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - codex/factradio-build-20260824
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -65,6 +68,7 @@ jobs:
           retention-days: 1
 
       - name: Publish verified build result on temporary branch
+        if: github.event_name == 'push'
         run: |
           mkdir -p factradio-verified-output
           cp factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk factradio-verified-output/FactRadio-0.6.0-unsigned.apk
