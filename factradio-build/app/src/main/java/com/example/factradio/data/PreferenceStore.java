@@ -126,9 +126,22 @@ public final class PreferenceStore {
         editor.apply();
     }
 
+    /** Mark the episode as heard as soon as real playback starts, not only at completion. */
+    public void recordStarted(Episode episode) {
+        if (episode == null) return;
+        SharedPreferences.Editor editor = preferences.edit();
+        rememberTitle(editor, episode.getTitle());
+        editor.putLong(LAST_PLAYED_PREFIX + episode.getId(), System.currentTimeMillis());
+        editor.apply();
+    }
+
     public boolean reserveAutomaticRecommendation() {
+        return reserveAutomaticRecommendation(false);
+    }
+
+    public boolean reserveAutomaticRecommendation(boolean queueIsEmpty) {
         int completed = preferences.getInt(COMPLETED_TOTAL, 0);
-        if (completed < 1 || completed % 2 != 0) return false;
+        if (!queueIsEmpty && (completed < 1 || completed % 2 != 0)) return false;
         String today = LocalDate.now().toString();
         String savedDay = preferences.getString(AUTO_DAY, "");
         int count = today.equals(savedDay) ? preferences.getInt(AUTO_DAY_COUNT, 0) : 0;
