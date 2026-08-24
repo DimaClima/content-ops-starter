@@ -9,13 +9,16 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.speech.RecognizerIntent;
 import android.text.TextUtils;
+import android.view.OrientationEventListener;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -66,6 +69,10 @@ public final class MainActivity extends Activity {
     private String currentMusicArtist = "";
     private boolean draggingSeek;
     private boolean receiverRegistered;
+    private boolean recommendationPending;
+    private OrientationEventListener orientationListener;
+    private int orientationCandidate = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private long orientationCandidateSince;
     private PreferenceStore preferenceStore;
     private RadioApiClient apiClient;
 
@@ -80,6 +87,8 @@ public final class MainActivity extends Activity {
             playing = intent.getBooleanExtra(RadioPlaybackService.EXTRA_PLAYING, false);
             musicBreak = intent.getBooleanExtra(RadioPlaybackService.EXTRA_MUSIC_BREAK, false);
             generationWait = intent.getBooleanExtra(RadioPlaybackService.EXTRA_GENERATION_WAIT, false);
+            recommendationPending = intent.getBooleanExtra(
+                    RadioPlaybackService.EXTRA_RECOMMENDATION_PENDING, false);
             musicTarget = intent.getIntExtra(RadioPlaybackService.EXTRA_MUSIC_TARGET, 0);
             musicCompleted = intent.getIntExtra(RadioPlaybackService.EXTRA_MUSIC_COMPLETED, 0);
             if (musicBreak) readMusicTrack();
@@ -102,6 +111,7 @@ public final class MainActivity extends Activity {
         bindViews();
         bindActions();
         renderEpisode();
+        configurePhysicalOrientation();
         requestNotificationPermissionIfNeeded();
     }
 
@@ -273,6 +283,10 @@ public final class MainActivity extends Activity {
                 statusText.setText("Музыкальная пауза · песня " + song + " из " + musicTarget
                         + " · «Сначала» вернёт рассказ");
             }
+        } else if (recommendationPending) {
+            statusText.setText("Ищу новый рассказ и сверяю факты…");
+        } else if (playing) {
+            statusText.setText("Сейчас в эфире");
         }
         if (!draggingSeek) {
             progressSeek.setMax(Math.max(duration, 1));
@@ -455,7 +469,60 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (orientationListener != null && orientationListener.canDetectOrientation()) {
+            orientationListener.enable();
+        }
         readMusicTrack();
+    }
+
+    @Override
+    protected void onPause() {
+        if (orientationListener != null) orientationListener.disable();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (orientationListener != null) orientationListener.disable();
+        super.onDestroy();
+    }
+
+    /**
+     * Samsung can keep a sensor Activity in portrait when the global rotation toggle is locked.
+     * FactRadio is an audio app used in a car mount, so follow the physical device position
+     * explicitly and support all four orientations regardless of that global toggle.
+     */
+    private void configurePhysicalOrientation() {
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        orientationListener = new OrientationEventListener(this) {
+            @Override public void onOrientationChanged(int orientation) {
+                if (orientation == ORIENTATION_UNKNOWN) return;
+                int target = requestedOrientationForDegrees(orientation);
+                long now = SystemClock.elapsedRealtime();
+                if (target != orientationCandidate) {
+                    orientationCandidate = target;
+                    orientationCandidateSince = now;
+                    return;
+                }
+                if (now - orientationCandidateSince < 350L
+                        || getRequestedOrientation() == target) return;
+                setRequestedOrientation(target);
+            }
+        };
+    }
+
+    static int requestedOrientationForDegrees(int degrees) {
+        int normalized = ((degrees % 360) + 360) % 360;
+        if (normalized < 45 || normalized >= 315) {
+            return ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        }
+        if (normalized < 135) {
+            return ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+        }
+        if (normalized < 225) {
+            return ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+        }
+        return ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
     }
 
     private void readMusicTrack() {
