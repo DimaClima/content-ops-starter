@@ -1,21 +1,20 @@
-name: FactRadio verified Android build
+name: FactRadio 0.6.1 verified Android build
 
 on:
   push:
     branches:
-      - codex/factradio-build-20260824
+      - codex/factradio-061-fix-20260824
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-install-test:
-    if: github.actor != 'github-actions[bot]'
+  build-and-device-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +25,13 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build release APK from source
+      - name: Clean build, lint, and test APK
         working-directory: factradio-build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon clean assembleRelease lintRelease
+          ./gradlew --no-daemon clean assembleRelease lintRelease assembleReleaseAndroidTest
 
-      - name: Verify manifest and sign install-test copy
+      - name: Verify APK identity, orientation, and Android Auto declarations
         working-directory: factradio-build
         run: |
           APK=app/build/outputs/apk/release/app-release-unsigned.apk
@@ -40,8 +39,12 @@ jobs:
           SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           test -s "$APK"
           "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
-          grep -q "package: name='com.factradio.app' versionCode='10' versionName='0.6.0'" app/build/outputs/apk/release/badging.txt
+          "$AAPT" dump xmltree "$APK" AndroidManifest.xml > app/build/outputs/apk/release/manifest.txt
+          grep -q "package: name='com.factradio.app' versionCode='11' versionName='0.6.1'" app/build/outputs/apk/release/badging.txt
           grep -q "targetSdkVersion:'29'" app/build/outputs/apk/release/badging.txt
+          grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
+          grep -q 'android.media.browse.MediaBrowserService' app/build/outputs/apk/release/manifest.txt
+          grep -q 'com.google.android.gms.car.application' app/build/outputs/apk/release/manifest.txt
           keytool -genkeypair -noprompt -keystore /tmp/install-test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 30 -dname "CN=FactRadio Install Test"
           cp "$APK" app/build/outputs/apk/release/app-install-test.apk
           "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled false app/build/outputs/apk/release/app-install-test.apk
@@ -53,7 +56,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install and launch on Android emulator
+      - name: Install, rotate, and run behavior tests on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -61,27 +64,37 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
-            adb install -r factradio-build/app/build/outputs/apk/release/app-install-test.apk
-            adb shell pm path com.factradio.app
+            set -euxo pipefail
+            APK=factradio-build/app/build/outputs/apk/release/app-install-test.apk
+            TEST_APK=factradio-build/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
+            adb install -r "$APK"
+            adb install -r "$TEST_APK"
             adb shell am start -W -n com.factradio.app/com.example.factradio.MainActivity
-            adb shell dumpsys package com.factradio.app | grep -q "versionName=0.6.0"
+            adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.6.1'
 
-      - name: Upload unsigned source build
+            # Keep Android's global rotation toggle locked. FactRadio must still follow
+            # the physical sensor because many car mounts use the phone this way.
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 0
+            adb emu sensor set acceleration 0:9.81:0
+            sleep 2
+            adb emu sensor set acceleration 9.81:0:0
+            for attempt in 1 2 3 4 5 6 7 8; do
+              orientation=$(adb shell dumpsys input | sed -n 's/.*SurfaceOrientation: *\([0-9]\).*/\1/p' | head -1 | tr -d '\r')
+              if [ "$orientation" = 1 ] || [ "$orientation" = 3 ]; then break; fi
+              sleep 1
+            done
+            test "$orientation" = 1 -o "$orientation" = 3
+
+            adb shell am instrument -w \
+              com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
+              | tee /tmp/factradio-instrumentation.txt
+            grep -q 'OK (4 tests)' /tmp/factradio-instrumentation.txt
+
+      - name: Upload verified unsigned source APK
         uses: actions/upload-artifact@v4
         with:
-          name: factradio-unsigned-source-build
+          name: factradio-061-unsigned-source-build
           path: factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 1
-
-      - name: Publish verified build result on temporary branch
-        if: github.event_name == 'push'
-        run: |
-          mkdir -p factradio-verified-output
-          cp factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk factradio-verified-output/FactRadio-0.6.0-unsigned.apk
-          cp factradio-build/app/build/outputs/apk/release/badging.txt factradio-verified-output/badging.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f factradio-verified-output
-          git commit -m "FactRadio build verified on Android emulator"
-          git push origin HEAD:${{ github.ref_name }}
