@@ -47,12 +47,19 @@ jobs:
           "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled false app/build/outputs/apk/release/app-install-test.apk
           "$SIGNER" verify --verbose app/build/outputs/apk/release/app-install-test.apk
 
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Install and launch on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             adb install -r factradio-build/app/build/outputs/apk/release/app-install-test.apk
             adb shell pm path com.factradio.app
