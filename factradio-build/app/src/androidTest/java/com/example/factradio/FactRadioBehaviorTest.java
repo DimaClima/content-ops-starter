@@ -66,8 +66,11 @@ public final class FactRadioBehaviorTest {
         assertTrue(store.canPlayNow(first));
         store.recordStarted(first);
         assertFalse(store.canPlayNow(first));
-        assertFalse(DemoEpisodes.personalized(context).stream()
-                .anyMatch(episode -> first.getId().equals(episode.getId())));
+        boolean offeredAgain = false;
+        for (Episode episode : DemoEpisodes.personalized(context)) {
+            if (first.getId().equals(episode.getId())) offeredAgain = true;
+        }
+        assertFalse(offeredAgain);
     }
 
     @Test

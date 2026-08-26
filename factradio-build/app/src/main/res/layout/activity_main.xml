@@ -28,7 +28,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Версия 0.7.2 · Android/Android Auto"
+            android:text="Версия 0.8.0 · Android 5–16/Android Auto"
             android:textColor="@color/muted"
             android:textSize="11sp" />
 

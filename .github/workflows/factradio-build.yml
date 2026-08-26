@@ -1,4 +1,4 @@
-name: FactRadio 0.7.2 verified Android build
+name: FactRadio 0.8.0 universal Android build
 
 on:
   push:
@@ -12,6 +12,10 @@ jobs:
   build-and-device-test:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [21, 24, 31, 35]
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +41,8 @@ jobs:
           test -s "$APK"
           "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
           "$AAPT" dump xmltree --file AndroidManifest.xml "$APK" > app/build/outputs/apk/release/manifest.txt
-          grep -q "package: name='com.factradio.app' versionCode='14' versionName='0.7.2'" app/build/outputs/apk/release/badging.txt
+          grep -q "package: name='com.factradio.app' versionCode='15' versionName='0.8.0'" app/build/outputs/apk/release/badging.txt
+          grep -q "sdkVersion:'21'" app/build/outputs/apk/release/badging.txt
           grep -q "targetSdkVersion:'35'" app/build/outputs/apk/release/badging.txt
           grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
           grep -q 'android.media.browse.MediaBrowserService' app/build/outputs/apk/release/manifest.txt
@@ -59,31 +64,17 @@ jobs:
       - name: Install, rotate, and run behavior tests on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: sh factradio-build/ci/emulator_test.sh
 
       - name: Upload verified unsigned source APK
+        if: matrix.api-level == 31
         uses: actions/upload-artifact@v4
         with:
-          name: factradio-072-unsigned-source-build
+          name: factradio-080-unsigned-source-build
           path: factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Export official Android signing tools
-        run: |
-          mkdir -p factradio-build/app/build/outputs/android-tools
-          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" factradio-build/app/build/outputs/android-tools/
-          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" factradio-build/app/build/outputs/android-tools/
-          chmod +x factradio-build/app/build/outputs/android-tools/zipalign
-
-      - name: Upload official Android signing tools
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-signing-tools-35
-          path: factradio-build/app/build/outputs/android-tools/
           if-no-files-found: error
           retention-days: 1

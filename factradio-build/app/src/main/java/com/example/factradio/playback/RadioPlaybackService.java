@@ -99,7 +99,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private Voice femaleVoice;
     private MediaSession mediaSession;
     private AudioManager audioManager;
-    private AudioFocusRequest focusRequest;
+    private Object focusRequest;
     private PreferenceStore preferenceStore;
     private PodcastRenderClient renderClient;
     private RadioApiClient storyClient;
@@ -116,6 +116,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private boolean waitingForFreshStory;
     private final AudioInterruptionPolicy audioInterruptionPolicy =
             new AudioInterruptionPolicy();
+    private final AudioManager.OnAudioFocusChangeListener focusChangeListener =
+            this::handleAudioFocusChange;
 
     private final BroadcastReceiver musicTrackReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -556,7 +558,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 russian.add(voice);
             }
         }
-        russian.sort(Comparator
+        Collections.sort(russian, Comparator
                 .comparingInt(Voice::getQuality).reversed()
                 .thenComparing(voice -> voice.isNetworkConnectionRequired() ? 0 : 1)
                 .thenComparing(Voice::getName));
@@ -876,72 +878,62 @@ public final class RadioPlaybackService extends MediaBrowserService {
         if (audioManager == null) return;
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             if (focusRequest == null) {
-                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                        .setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                .build())
-                        .setOnAudioFocusChangeListener(change -> {
-                            if (change == AudioManager.AUDIOFOCUS_LOSS) {
-                                audioInterruptionPolicy.onUserPauseOrPermanentLoss();
-                                pendingAutoplay = false;
-                                if (player != null) {
-                                    try { player.pause(); } catch (IllegalStateException ignored) {}
-                                }
-                                updatePlaybackState();
-                                updateNotification();
-                                broadcastState();
-                                return;
-                            }
-                            if (change < 0) {
-                                // Navigation prompts cause only a temporary pause. Do not clear
-                                // pendingAutoplay, so AUDIOFOCUS_GAIN can continue the same story.
-                                boolean currentlyPlaying = false;
-                                if (player != null) {
-                                    try { currentlyPlaying = player.isPlaying(); }
-                                    catch (IllegalStateException ignored) {}
-                                }
-                                if (audioInterruptionPolicy.onTransientLoss(
-                                        pendingAutoplay, currentlyPlaying)) {
-                                    try {
-                                        player.pause();
-                                    } catch (IllegalStateException ignored) {}
-                                }
-                                updatePlaybackState();
-                                updateNotification();
-                                broadcastState();
-                                return;
-                            }
-                            if (change == AudioManager.AUDIOFOCUS_GAIN
-                                    && audioInterruptionPolicy.onFocusGain(pendingAutoplay)
-                                    && player != null) {
-                                try {
-                                    player.start();
-                                } catch (IllegalStateException ignored) {}
-                                updatePlaybackState();
-                                updateNotification();
-                                broadcastState();
-                            }
-                        })
-                        .build();
+                focusRequest = Api26AudioFocus.create(focusChangeListener);
             }
-            audioManager.requestAudioFocus(focusRequest);
+            Api26AudioFocus.request(audioManager, focusRequest);
+        } else {
+            audioManager.requestAudioFocus(
+                    focusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN);
         }
     }
 
     private void abandonAudioFocus() {
-        if (audioManager == null || focusRequest == null || android.os.Build.VERSION.SDK_INT < 26) return;
-        audioManager.abandonAudioFocusRequest(focusRequest);
+        if (audioManager == null) return;
+        if (android.os.Build.VERSION.SDK_INT >= 26 && focusRequest != null) {
+            Api26AudioFocus.abandon(audioManager, focusRequest);
+        } else {
+            audioManager.abandonAudioFocus(focusChangeListener);
+        }
+    }
+
+    private void handleAudioFocusChange(int change) {
+        if (change == AudioManager.AUDIOFOCUS_LOSS) {
+            audioInterruptionPolicy.onUserPauseOrPermanentLoss();
+            pendingAutoplay = false;
+            if (player != null) {
+                try { player.pause(); } catch (IllegalStateException ignored) {}
+            }
+        } else if (change < 0) {
+            boolean currentlyPlaying = false;
+            if (player != null) {
+                try { currentlyPlaying = player.isPlaying(); }
+                catch (IllegalStateException ignored) {}
+            }
+            if (player != null && audioInterruptionPolicy.onTransientLoss(
+                    pendingAutoplay, currentlyPlaying)) {
+                try { player.pause(); } catch (IllegalStateException ignored) {}
+            }
+        } else if (change == AudioManager.AUDIOFOCUS_GAIN
+                && audioInterruptionPolicy.onFocusGain(pendingAutoplay)
+                && player != null) {
+            try { player.start(); } catch (IllegalStateException ignored) {}
+        }
+        updatePlaybackState();
+        updateNotification();
+        broadcastState();
     }
 
     private void createNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT < 26) return;
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
                 "Эфир ФактРадио",
                 NotificationManager.IMPORTANCE_LOW
         );
         channel.setDescription("Управление воспроизведением документальных историй");
-        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        notificationManager().createNotificationChannel(channel);
     }
 
     private Notification buildNotification(boolean playing) {
@@ -960,7 +952,10 @@ public final class RadioPlaybackService extends MediaBrowserService {
         Notification.Action like = action(android.R.drawable.arrow_up_float, "Нравится", ACTION_LIKE, 5);
         Notification.Action dislike = action(android.R.drawable.arrow_down_float, "Не моё", ACTION_DISLIKE, 6);
 
-        return new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL_ID)
+                : new Notification.Builder(this).setPriority(Notification.PRIORITY_LOW);
+        return builder
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentTitle(musicBreak
                         ? "Музыкальная пауза"
@@ -991,7 +986,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private void updateNotification() {
         boolean playing = isPlaybackActive();
-        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification(playing));
+        notificationManager().notify(NOTIFICATION_ID, buildNotification(playing));
     }
 
     private void broadcastState() {
@@ -1012,9 +1007,12 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private void loadCloudFeed() {
         storyClient.requestFeed(40, new RadioApiClient.FeedCallback() {
             @Override public void onSuccess(ArrayList<Episode> episodes) {
-                episodes.removeIf(episode -> !preferenceStore.canPlayNow(episode));
+                for (int index = episodes.size() - 1; index >= 0; index--) {
+                    if (!preferenceStore.canPlayNow(episodes.get(index))) episodes.remove(index);
+                }
                 Collections.shuffle(episodes);
-                episodes.sort(Comparator.comparingInt(preferenceStore::score).reversed());
+                Collections.sort(episodes,
+                        Comparator.comparingInt(preferenceStore::score).reversed());
                 for (Episode episode : episodes) {
                     if (containsEpisode(episode.getId())) continue;
                     queue.add(episode);
@@ -1213,6 +1211,31 @@ public final class RadioPlaybackService extends MediaBrowserService {
             if (part.exists()) part.delete();
         }
         synthesisParts.clear();
+    }
+
+    private NotificationManager notificationManager() {
+        return (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+    }
+
+    @android.annotation.TargetApi(26)
+    private static final class Api26AudioFocus {
+        static Object create(AudioManager.OnAudioFocusChangeListener listener) {
+            return new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build())
+                    .setOnAudioFocusChangeListener(listener)
+                    .build();
+        }
+
+        static void request(AudioManager manager, Object request) {
+            manager.requestAudioFocus((AudioFocusRequest) request);
+        }
+
+        static void abandon(AudioManager manager, Object request) {
+            manager.abandonAudioFocusRequest((AudioFocusRequest) request);
+        }
     }
 
     @Override

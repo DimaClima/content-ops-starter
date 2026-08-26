@@ -27,13 +27,15 @@ public final class YandexNotificationListener extends NotificationListenerServic
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Оценка треков",
-                NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("Кнопки нравится и не нравится для текущего трека Яндекс Музыки");
-        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Оценка треков",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Кнопки нравится и не нравится для текущего трека Яндекс Музыки");
+            notificationManager().createNotificationChannel(channel);
+        }
     }
 
     @Override
@@ -79,7 +81,10 @@ public final class YandexNotificationListener extends NotificationListenerServic
         Notification.Action like = ratingAction("👍 Нравится", title, artist, 1, 21);
         Notification.Action dislike = ratingAction("👎 Не моё", title, artist, -1, 22);
 
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL_ID)
+                : new Notification.Builder(this);
+        Notification notification = builder
                 .setSmallIcon(android.R.drawable.btn_star_big_on)
                 .setContentTitle(title)
                 .setContentText(artist.isEmpty() ? "Яндекс Музыка" : artist)
@@ -89,7 +94,7 @@ public final class YandexNotificationListener extends NotificationListenerServic
                 .addAction(like)
                 .addAction(dislike)
                 .build();
-        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification);
+        notificationManager().notify(NOTIFICATION_ID, notification);
     }
 
     private Notification.Action ratingAction(
@@ -112,5 +117,9 @@ public final class YandexNotificationListener extends NotificationListenerServic
 
     private static String asString(CharSequence value) {
         return value == null ? "" : value.toString().trim();
+    }
+
+    private NotificationManager notificationManager() {
+        return (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
     }
 }

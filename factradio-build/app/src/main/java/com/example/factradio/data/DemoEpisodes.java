@@ -22,7 +22,7 @@ public final class DemoEpisodes {
             if (store.canPlayNow(episode)) episodes.add(episode);
         }
         Collections.shuffle(episodes);
-        episodes.sort(Comparator.comparingInt(store::score).reversed());
+        Collections.sort(episodes, Comparator.comparingInt(store::score).reversed());
         return episodes;
     }
 
