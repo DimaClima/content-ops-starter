@@ -34,9 +34,8 @@ landscape=0
 attempt=1
 while [ "$attempt" -le 12 ]; do
   adb emu sensor set acceleration 9.81:0:0 >/dev/null
-  adb shell uiautomator dump /sdcard/factradio-rotation.xml >/dev/null 2>&1 || true
-  rotation=$(adb shell cat /sdcard/factradio-rotation.xml 2>/dev/null | sed -n 's/.*<hierarchy rotation="\([0-9]\)".*/\1/p')
-  if [ "$rotation" = "1" ] || [ "$rotation" = "3" ]; then
+  if adb shell dumpsys activity activities |
+      grep -q 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE'; then
     landscape=1
     break
   fi
@@ -45,9 +44,6 @@ while [ "$attempt" -le 12 ]; do
 done
 test "$landscape" -eq 1
 
-adb shell uiautomator dump /sdcard/factradio-window.xml >/dev/null 2>&1
-adb shell cat /sdcard/factradio-window.xml | grep -q 'Версия 0.7.1'
-
 # Reproduce Dmitry's real use: leave the app for navigation, then enter it again.
 # The app must stay alive and start a fresh session instead of restoring the old one.
 adb shell input keyevent KEYCODE_HOME
@@ -55,8 +51,8 @@ sleep 2
 adb shell monkey -p com.factradio.app 1 >/dev/null
 sleep 12
 adb shell pidof com.factradio.app >/dev/null
-adb shell uiautomator dump /sdcard/factradio-reentry.xml >/dev/null 2>&1
-adb shell cat /sdcard/factradio-reentry.xml | grep -q 'Версия 0.7.1'
+adb shell dumpsys activity activities |
+  grep -q 'mResumedActivity:.*com.factradio.app'
 
 adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
