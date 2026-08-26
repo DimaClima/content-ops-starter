@@ -40,7 +40,7 @@ attempt=1
 while [ "$attempt" -le 12 ]; do
   adb emu sensor set acceleration 9.81:0:0 >/dev/null
   adb shell dumpsys activity activities > /tmp/factradio-activity.txt
-  if grep -Eq 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land ' \
+  if grep -Eq '(mOrientation|requestedOrientation|overrideOrientation)=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land ' \
       /tmp/factradio-activity.txt; then
     landscape=1
     break
