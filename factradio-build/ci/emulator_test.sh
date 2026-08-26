@@ -21,10 +21,10 @@ adb emu sensor set acceleration 9.81:0:0
 landscape=0
 attempt=1
 while [ "$attempt" -le 12 ]; do
-  size=$(adb shell wm size | tail -1 | tr -d '\r')
-  width=$(printf '%s' "$size" | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1/p')
-  height=$(printf '%s' "$size" | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\2/p')
-  if [ -n "$width" ] && [ -n "$height" ] && [ "$width" -gt "$height" ]; then
+  adb emu sensor set acceleration 9.81:0:0 >/dev/null
+  adb shell uiautomator dump /sdcard/factradio-rotation.xml >/dev/null 2>&1 || true
+  rotation=$(adb shell cat /sdcard/factradio-rotation.xml 2>/dev/null | sed -n 's/.*<hierarchy rotation="\([0-9]\)".*/\1/p')
+  if [ "$rotation" = "1" ] || [ "$rotation" = "3" ]; then
     landscape=1
     break
   fi
@@ -40,4 +40,3 @@ adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
   | tee /tmp/factradio-instrumentation.txt
 grep -q 'OK (7 tests)' /tmp/factradio-instrumentation.txt
-

@@ -80,6 +80,8 @@ public final class MainActivity extends Activity {
     private Sensor accelerometer;
     private int orientationCandidate = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private long orientationCandidateSince;
+    private boolean hasEnteredForeground;
+    private long stoppedAt;
     private PreferenceStore preferenceStore;
     private RadioApiClient apiClient;
 
@@ -478,10 +480,19 @@ public final class MainActivity extends Activity {
             registerReceiver(playbackReceiver, filter);
         }
         receiverRegistered = true;
+        if (hasEnteredForeground && stoppedAt > 0L
+                && SystemClock.elapsedRealtime() - stoppedAt >= 1000L) {
+            currentEpisode = null;
+            renderEpisode();
+            sendPlaybackAction(RadioPlaybackService.ACTION_START_NEW_SESSION);
+        }
+        hasEnteredForeground = true;
+        stoppedAt = 0L;
     }
 
     @Override
     protected void onStop() {
+        stoppedAt = SystemClock.elapsedRealtime();
         if (receiverRegistered) {
             unregisterReceiver(playbackReceiver);
             receiverRegistered = false;
