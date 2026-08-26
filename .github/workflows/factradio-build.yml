@@ -1,9 +1,7 @@
 name: FactRadio 0.8.0 universal Android build
 
 on:
-  push:
-    branches:
-      - codex/factradio-061-fix-20260824
+  workflow_dispatch:
 
 permissions:
   contents: read
