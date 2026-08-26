@@ -25,7 +25,7 @@ adb install -r "$APK"
 adb install -r "$TEST_APK"
 adb shell pm grant com.factradio.app android.permission.POST_NOTIFICATIONS || true
 adb shell am start -W -n com.factradio.app/com.example.factradio.MainActivity
-adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.8.0'
+adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.8.1'
 sleep 12
 app_process_alive
 
@@ -40,8 +40,11 @@ attempt=1
 while [ "$attempt" -le 12 ]; do
   adb emu sensor set acceleration 9.81:0:0 >/dev/null
   adb shell dumpsys activity activities > /tmp/factradio-activity.txt
-  if grep -Eq '(mOrientation|requestedOrientation|overrideOrientation)=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land ' \
-      /tmp/factradio-activity.txt; then
+  adb shell dumpsys window displays > /tmp/factradio-window.txt
+  frame=$(grep -m1 'mDisplayFrame=Rect(0, 0 - ' /tmp/factradio-window.txt \
+      | sed -E 's/.*- ([0-9]+), ([0-9]+).*/\1 \2/' || true)
+  set -- $frame
+  if [ "$#" -eq 2 ] && [ "$1" -gt "$2" ]; then
     landscape=1
     break
   fi
@@ -64,4 +67,4 @@ grep -q 'com.factradio.app/com.example.factradio.MainActivity' \
 adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
   | tee /tmp/factradio-instrumentation.txt
-grep -q 'OK (7 tests)' /tmp/factradio-instrumentation.txt
+grep -q 'OK (9 tests)' /tmp/factradio-instrumentation.txt

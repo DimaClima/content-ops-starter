@@ -75,6 +75,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
     public static final String EXTRA_MUSIC_COMPLETED = "music_completed";
     public static final String EXTRA_GENERATION_WAIT = "generation_wait";
     public static final String EXTRA_RECOMMENDATION_PENDING = "recommendation_pending";
+    public static final String EXTRA_HAS_EPISODE = "has_episode";
+    public static final String EXTRA_ERROR = "error";
 
     private static final int NOTIFICATION_ID = 101;
     private static final String CHANNEL_ID = "fact_radio_playback";
@@ -113,6 +115,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private boolean generationWaitMusic;
     private boolean recommendationPending;
     private boolean waitingForFreshStory;
+    private String storyErrorMessage = "";
     private final AudioInterruptionPolicy audioInterruptionPolicy =
             new AudioInterruptionPolicy();
     private final AudioManager.OnAudioFocusChangeListener focusChangeListener =
@@ -336,6 +339,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
         if (current != null && isPlaybackActive()) preferenceStore.recordSkipped(current);
         pendingAutoplay = autoplay;
         waitingForFreshStory = true;
+        storyErrorMessage = "";
         invalidateAudioWork();
         current = null;
         currentIndex = -1;
@@ -1004,6 +1008,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private void broadcastState() {
         Intent state = new Intent(ACTION_STATE).setPackage(getPackageName());
         state.putExtra(EXTRA_EPISODE, current);
+        state.putExtra(EXTRA_HAS_EPISODE, current != null);
+        state.putExtra(EXTRA_ERROR, storyErrorMessage);
         state.putExtra(EXTRA_PLAYING, isPlaybackActive());
         state.putExtra(EXTRA_POSITION, currentPosition());
         state.putExtra(EXTRA_DURATION, currentDuration());
@@ -1081,6 +1087,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 preferenceStore.getRecentTitles(), new RadioApiClient.Callback() {
             @Override public void onSuccess(Episode episode) {
                 recommendationPending = false;
+                storyErrorMessage = "";
                 if (containsEpisode(episode.getId()) || !preferenceStore.canPlayNow(episode)) {
                     if (attempt < 1) requestFreshStory(query, autoplay, attempt + 1);
                     else useOfflineFallback("Сервер дважды предложил недавнюю историю");
@@ -1117,41 +1124,17 @@ public final class RadioPlaybackService extends MediaBrowserService {
         recommendationPending = false;
         waitingForFreshStory = false;
         if (generationWaitMusic) stopMusicBreak();
-        Episode fallback = null;
-        for (Episode episode : queue) {
-            if (preferenceStore.canPlayNow(episode)) {
-                fallback = episode;
-                break;
-            }
-        }
-        if (fallback == null) {
-            for (Episode episode : DemoEpisodes.personalized(this)) {
-                if (preferenceStore.canPlayNow(episode)) {
-                    fallback = episode;
-                    break;
-                }
-            }
-        }
-        if (fallback != null) {
-            current = fallback;
-            currentIndex = queue.indexOf(fallback);
-            if (currentIndex < 0) {
-                queue.add(0, fallback);
-                currentIndex = 0;
-            }
-            android.widget.Toast.makeText(this,
-                    "Новый выпуск временно недоступен. Включаю неповторённый запасной.",
-                    android.widget.Toast.LENGTH_LONG).show();
-            if (pendingAutoplay) synthesizeCurrent();
-        } else {
-            pendingAutoplay = false;
-            PlaybackState errorState = new PlaybackState.Builder()
-                    .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_SKIP_TO_NEXT)
-                    .setErrorMessage(message == null ? "Не удалось создать новый выпуск" : message)
-                    .setState(PlaybackState.STATE_ERROR, 0, 0f)
-                    .build();
-            mediaSession.setPlaybackState(errorState);
-        }
+        pendingAutoplay = false;
+        current = null;
+        currentIndex = -1;
+        storyErrorMessage = message == null || message.trim().isEmpty()
+                ? "Не удалось создать новый выпуск" : message;
+        PlaybackState errorState = new PlaybackState.Builder()
+                .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_SKIP_TO_NEXT)
+                .setErrorMessage(storyErrorMessage)
+                .setState(PlaybackState.STATE_ERROR, 0, 0f)
+                .build();
+        mediaSession.setPlaybackState(errorState);
         notifyChildrenChanged(ROOT_ID);
         updateNotification();
         broadcastState();

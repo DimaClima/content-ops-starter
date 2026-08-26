@@ -80,8 +80,7 @@ public final class MainActivity extends Activity {
     private Sensor accelerometer;
     private int orientationCandidate = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private long orientationCandidateSince;
-    private boolean hasEnteredForeground;
-    private long stoppedAt;
+    private String storyErrorMessage = "";
     private PreferenceStore preferenceStore;
     private RadioApiClient apiClient;
 
@@ -99,16 +98,21 @@ public final class MainActivity extends Activity {
     private final BroadcastReceiver playbackReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            Episode episode = (Episode) intent.getSerializableExtra(RadioPlaybackService.EXTRA_EPISODE);
-            if (episode != null) {
-                currentEpisode = episode;
-                renderEpisode();
-            }
             playing = intent.getBooleanExtra(RadioPlaybackService.EXTRA_PLAYING, false);
             musicBreak = intent.getBooleanExtra(RadioPlaybackService.EXTRA_MUSIC_BREAK, false);
             generationWait = intent.getBooleanExtra(RadioPlaybackService.EXTRA_GENERATION_WAIT, false);
             recommendationPending = intent.getBooleanExtra(
                     RadioPlaybackService.EXTRA_RECOMMENDATION_PENDING, false);
+            storyErrorMessage = intent.getStringExtra(RadioPlaybackService.EXTRA_ERROR);
+            if (storyErrorMessage == null) storyErrorMessage = "";
+            Episode episode = (Episode) intent.getSerializableExtra(RadioPlaybackService.EXTRA_EPISODE);
+            if (episode != null) {
+                currentEpisode = episode;
+                renderEpisode();
+            } else if (!intent.getBooleanExtra(RadioPlaybackService.EXTRA_HAS_EPISODE, false)) {
+                currentEpisode = null;
+                renderEmptyEpisode();
+            }
             musicTarget = intent.getIntExtra(RadioPlaybackService.EXTRA_MUSIC_TARGET, 0);
             musicCompleted = intent.getIntExtra(RadioPlaybackService.EXTRA_MUSIC_COMPLETED, 0);
             if (musicBreak) readMusicTrack();
@@ -132,9 +136,28 @@ public final class MainActivity extends Activity {
         renderEpisode();
         configurePhysicalOrientation();
         requestNotificationPermissionIfNeeded();
-        if (savedInstanceState == null) {
-            sendPlaybackAction(RadioPlaybackService.ACTION_START_NEW_SESSION);
-        }
+        startFreshSession();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (isLauncherIntent(intent)) startFreshSession();
+    }
+
+    static boolean isLauncherIntent(Intent intent) {
+        return intent != null
+                && Intent.ACTION_MAIN.equals(intent.getAction())
+                && intent.hasCategory(Intent.CATEGORY_LAUNCHER);
+    }
+
+    private void startFreshSession() {
+        currentEpisode = null;
+        storyErrorMessage = "";
+        recommendationPending = true;
+        renderEmptyEpisode();
+        sendPlaybackAction(RadioPlaybackService.ACTION_START_NEW_SESSION);
     }
 
     private void bindViews() {
@@ -287,6 +310,18 @@ public final class MainActivity extends Activity {
         renderRating();
     }
 
+    private void renderEmptyEpisode() {
+        categoryText.setText("НОВЫЙ ВЫПУСК");
+        if (!storyErrorMessage.isEmpty()) {
+            titleText.setText("Не удалось создать новый выпуск");
+            descriptionText.setText(storyErrorMessage);
+        } else {
+            titleText.setText("Подбираю новую тему…");
+            descriptionText.setText("Ищу подтверждённые источники и готовлю выпуск без повторов.");
+        }
+        renderRating();
+    }
+
     private void renderRating() {
         int rating = musicBreak
                 ? preferenceStore.getMusicRating(currentMusicTitle, currentMusicArtist)
@@ -309,6 +344,8 @@ public final class MainActivity extends Activity {
             }
         } else if (recommendationPending) {
             statusText.setText("Ищу новый рассказ и сверяю факты…");
+        } else if (!storyErrorMessage.isEmpty()) {
+            statusText.setText("Ошибка нового выпуска. Нажмите «Дальше», чтобы повторить.");
         } else if (playing) {
             statusText.setText("Сейчас в эфире");
         }
@@ -482,19 +519,10 @@ public final class MainActivity extends Activity {
             registerReceiver(playbackReceiver, filter);
         }
         receiverRegistered = true;
-        if (hasEnteredForeground && stoppedAt > 0L
-                && SystemClock.elapsedRealtime() - stoppedAt >= 1000L) {
-            currentEpisode = null;
-            renderEpisode();
-            sendPlaybackAction(RadioPlaybackService.ACTION_START_NEW_SESSION);
-        }
-        hasEnteredForeground = true;
-        stoppedAt = 0L;
     }
 
     @Override
     protected void onStop() {
-        stoppedAt = SystemClock.elapsedRealtime();
         if (receiverRegistered) {
             unregisterReceiver(playbackReceiver);
             receiverRegistered = false;
@@ -505,12 +533,11 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (orientationListener != null && orientationListener.canDetectOrientation()) {
-            orientationListener.enable();
-        }
         if (sensorManager != null && accelerometer != null) {
             sensorManager.registerListener(
                     accelerometerListener, accelerometer, SensorManager.SENSOR_DELAY_UI);
+        } else if (orientationListener != null && orientationListener.canDetectOrientation()) {
+            orientationListener.enable();
         }
         readMusicTrack();
     }
@@ -558,7 +585,7 @@ public final class MainActivity extends Activity {
             orientationCandidateSince = now;
             return;
         }
-        if (now - orientationCandidateSince < 450L
+        if (now - orientationCandidateSince < 250L
                 || getRequestedOrientation() == target) return;
         try {
             setRequestedOrientation(target);

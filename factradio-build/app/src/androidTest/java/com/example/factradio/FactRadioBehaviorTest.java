@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.media.browse.MediaBrowser;
 import android.os.Bundle;
@@ -57,6 +58,21 @@ public final class FactRadioBehaviorTest {
                 MainActivity.requestedOrientationForGravity(9.8f, 0f));
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
                 MainActivity.requestedOrientationForGravity(-9.8f, 0f));
+    }
+
+    @Test
+    public void launcherIntentAlwaysStartsFreshSession() {
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        assertTrue(MainActivity.isLauncherIntent(launcher));
+        assertFalse(MainActivity.isLauncherIntent(new Intent(Intent.ACTION_VIEW)));
+    }
+
+    @Test
+    public void manifestUsesSingleTaskAndFullSensor() throws Exception {
+        ActivityInfo activityInfo = context.getPackageManager().getActivityInfo(
+                new ComponentName(context, MainActivity.class), 0);
+        assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, activityInfo.launchMode);
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR, activityInfo.screenOrientation);
     }
 
     @Test
