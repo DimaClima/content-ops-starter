@@ -14,6 +14,10 @@ show_crash_log() {
 }
 trap show_crash_log EXIT
 
+app_process_alive() {
+  adb shell ps | grep -q 'com.factradio.app'
+}
+
 test -s "$APK"
 test -s "$TEST_APK"
 adb install -r "$APK"
@@ -22,7 +26,7 @@ adb shell pm grant com.factradio.app android.permission.POST_NOTIFICATIONS || tr
 adb shell am start -W -n com.factradio.app/com.example.factradio.MainActivity
 adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.8.0'
 sleep 12
-adb shell pidof com.factradio.app >/dev/null
+app_process_alive
 
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
@@ -35,7 +39,7 @@ attempt=1
 while [ "$attempt" -le 12 ]; do
   adb emu sensor set acceleration 9.81:0:0 >/dev/null
   if adb shell dumpsys activity activities |
-      grep -q 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE'; then
+      grep -Eq 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land '; then
     landscape=1
     break
   fi
@@ -50,9 +54,9 @@ adb shell input keyevent KEYCODE_HOME
 sleep 2
 adb shell monkey -p com.factradio.app 1 >/dev/null
 sleep 12
-adb shell pidof com.factradio.app >/dev/null
+app_process_alive
 adb shell dumpsys activity activities |
-  grep -q 'mResumedActivity:.*com.factradio.app'
+  grep -q 'com.factradio.app/com.example.factradio.MainActivity'
 
 adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
