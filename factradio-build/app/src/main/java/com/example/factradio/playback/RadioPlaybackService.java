@@ -1,5 +1,6 @@
 package com.example.factradio.playback;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -133,6 +134,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     };
 
     @Override
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     public void onCreate() {
         super.onCreate();
         preferenceStore = new PreferenceStore(this);

@@ -1,6 +1,7 @@
 package com.example.factradio;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
@@ -467,6 +468,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     protected void onStart() {
         super.onStart();
         IntentFilter filter = new IntentFilter(RadioPlaybackService.ACTION_STATE);
