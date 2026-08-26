@@ -1,5 +1,5 @@
 name: FactRadio 0.8.1 universal Android build
-# Device verification for the fresh-session and physical-rotation fixes.
+# Device verification for fresh sessions and physical rotation.
 
 on:
   workflow_dispatch:
