@@ -20,7 +20,7 @@ adb install -r "$APK"
 adb install -r "$TEST_APK"
 adb shell pm grant com.factradio.app android.permission.POST_NOTIFICATIONS || true
 adb shell am start -W -n com.factradio.app/com.example.factradio.MainActivity
-adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.7.0'
+adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.7.1'
 sleep 12
 adb shell pidof com.factradio.app >/dev/null
 
@@ -46,7 +46,7 @@ done
 test "$landscape" -eq 1
 
 adb shell uiautomator dump /sdcard/factradio-window.xml >/dev/null 2>&1
-adb shell cat /sdcard/factradio-window.xml | grep -q 'Версия 0.7.0'
+adb shell cat /sdcard/factradio-window.xml | grep -q 'Версия 0.7.1'
 
 # Reproduce Dmitry's real use: leave the app for navigation, then enter it again.
 # The app must stay alive and start a fresh session instead of restoring the old one.
@@ -56,7 +56,7 @@ adb shell monkey -p com.factradio.app 1 >/dev/null
 sleep 12
 adb shell pidof com.factradio.app >/dev/null
 adb shell uiautomator dump /sdcard/factradio-reentry.xml >/dev/null 2>&1
-adb shell cat /sdcard/factradio-reentry.xml | grep -q 'Версия 0.7.0'
+adb shell cat /sdcard/factradio-reentry.xml | grep -q 'Версия 0.7.1'
 
 adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \

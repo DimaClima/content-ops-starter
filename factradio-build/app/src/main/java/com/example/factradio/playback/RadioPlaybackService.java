@@ -104,6 +104,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private PodcastRenderClient renderClient;
     private RadioApiClient storyClient;
     private boolean cloudRenderPending;
+    private String cloudRenderToken = "";
     private String cloudDownloadToken = "";
     private boolean musicBreak;
     private int musicTarget;
@@ -318,6 +319,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private void advanceStory() {
         pendingAutoplay = true;
         waitingForFreshStory = true;
+        invalidateAudioWork();
         current = null;
         currentIndex = -1;
         releasePlayer();
@@ -333,6 +335,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
         if (current != null && isPlaybackActive()) preferenceStore.recordSkipped(current);
         pendingAutoplay = autoplay;
         waitingForFreshStory = true;
+        invalidateAudioWork();
         current = null;
         currentIndex = -1;
         releasePlayer();
@@ -430,19 +433,28 @@ public final class RadioPlaybackService extends MediaBrowserService {
     }
 
     private void requestCloudRender(String voicePreset) {
-        if (cloudRenderPending) return;
+        if (current == null) return;
+        final Episode renderEpisode = current;
+        final String renderToken = renderEpisode.getId() + "-" + System.nanoTime();
+        cloudRenderToken = renderToken;
         cloudRenderPending = true;
         updateNotification();
-        renderClient.render(current, voicePreset, new PodcastRenderClient.Callback() {
+        renderClient.render(renderEpisode, voicePreset, new PodcastRenderClient.Callback() {
             @Override public void onSuccess(String audioUrl) {
+                if (!renderToken.equals(cloudRenderToken)
+                        || current == null
+                        || !renderEpisode.getId().equals(current.getId())) return;
                 cloudRenderPending = false;
-                if (!pendingAutoplay || current == null) return;
+                if (!pendingAutoplay) return;
                 current = copyWithAudio(current, audioUrl);
                 prepareRemoteAndPlay(audioUrl);
                 broadcastState();
             }
 
             @Override public void onError(String message) {
+                if (!renderToken.equals(cloudRenderToken)
+                        || current == null
+                        || !renderEpisode.getId().equals(current.getId())) return;
                 cloudRenderPending = false;
                 android.widget.Toast.makeText(
                         RadioPlaybackService.this,
@@ -484,10 +496,21 @@ public final class RadioPlaybackService extends MediaBrowserService {
     private void reloadVoice() {
         if (current == null) return;
         pendingAutoplay = true;
-        cloudRenderPending = false;
+        invalidateAudioWork();
         current = copyWithAudio(current, "");
         releasePlayer();
         synthesizeCurrent();
+    }
+
+    private void invalidateAudioWork() {
+        cloudRenderToken = "";
+        cloudDownloadToken = "";
+        cloudRenderPending = false;
+        synthesisToken = null;
+        if (tts != null) {
+            try { tts.stop(); } catch (Exception ignored) {}
+        }
+        cleanupSynthesisParts();
     }
 
     private void synthesizeNextDialogueLine() {
@@ -572,6 +595,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
             } catch (Exception error) {
                 handler.post(() -> {
                     if (!token.equals(cloudDownloadToken)) return;
+                    if (current == null || !episodeId.equals(current.getId())) return;
                     String detail = error.getMessage();
                     android.widget.Toast.makeText(
                             RadioPlaybackService.this,
@@ -580,7 +604,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
                                     : "Не удалось скачать облачный голос: " + detail,
                             android.widget.Toast.LENGTH_LONG
                     ).show();
-                    if (current != null) current = copyWithAudio(current, "");
+                    current = copyWithAudio(current, "");
                     requestCloudRender(preferenceStore.getVoicePreset());
                 });
             }

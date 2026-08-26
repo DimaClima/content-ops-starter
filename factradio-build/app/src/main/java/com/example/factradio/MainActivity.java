@@ -533,7 +533,11 @@ public final class MainActivity extends Activity {
      * explicitly and support all four orientations regardless of that global toggle.
      */
     private void configurePhysicalOrientation() {
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        try {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        } catch (RuntimeException ignored) {
+            // Some Samsung multi-window modes reject explicit orientation requests.
+        }
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         accelerometer = sensorManager == null
                 ? null : sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -554,7 +558,11 @@ public final class MainActivity extends Activity {
         }
         if (now - orientationCandidateSince < 450L
                 || getRequestedOrientation() == target) return;
-        setRequestedOrientation(target);
+        try {
+            setRequestedOrientation(target);
+        } catch (RuntimeException ignored) {
+            // Keep audio running even if the current window mode refuses rotation.
+        }
     }
 
     static int requestedOrientationForDegrees(int degrees) {
