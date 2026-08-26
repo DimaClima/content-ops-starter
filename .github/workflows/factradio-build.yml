@@ -30,7 +30,11 @@ jobs:
         working-directory: factradio-build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon clean assembleRelease lintRelease assembleAndroidTest
+          if ! ./gradlew --no-daemon clean assembleRelease lintRelease assembleAndroidTest; then
+            REPORT=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+            test -f "$REPORT" && cat "$REPORT"
+            exit 1
+          fi
 
       - name: Verify APK identity, orientation, and Android Auto declarations
         working-directory: factradio-build
