@@ -12,6 +12,7 @@ import android.os.Bundle;
 
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.example.factradio.data.DemoEpisodes;
 import com.example.factradio.data.PreferenceStore;
@@ -105,12 +106,14 @@ public final class FactRadioBehaviorTest {
         CountDownLatch loaded = new CountDownLatch(1);
         AtomicReference<List<MediaBrowser.MediaItem>> children = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        final MediaBrowser[] browser = new MediaBrowser[1];
-        browser[0] = new MediaBrowser(context,
-                new ComponentName(context, RadioPlaybackService.class),
-                new MediaBrowser.ConnectionCallback() {
+        AtomicReference<MediaBrowser> browser = new AtomicReference<>();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            MediaBrowser mediaBrowser = new MediaBrowser(context,
+                    new ComponentName(context, RadioPlaybackService.class),
+                    new MediaBrowser.ConnectionCallback() {
                     @Override public void onConnected() {
-                        browser[0].subscribe(browser[0].getRoot(),
+                        MediaBrowser connectedBrowser = browser.get();
+                        connectedBrowser.subscribe(connectedBrowser.getRoot(),
                                 new MediaBrowser.SubscriptionCallback() {
                                     @Override public void onChildrenLoaded(String parentId,
                                                                            List<MediaBrowser.MediaItem> items) {
@@ -130,9 +133,12 @@ public final class FactRadioBehaviorTest {
                         loaded.countDown();
                     }
                 }, null);
-        browser[0].connect();
+            browser.set(mediaBrowser);
+            mediaBrowser.connect();
+        });
         assertTrue("Android Auto catalog timed out", loaded.await(8, TimeUnit.SECONDS));
-        browser[0].disconnect();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(
+                () -> browser.get().disconnect());
         if (failure.get() != null) throw new AssertionError(failure.get());
         assertTrue(children.get() != null && !children.get().isEmpty());
         assertEquals("factradio:new", children.get().get(0).getMediaId());
