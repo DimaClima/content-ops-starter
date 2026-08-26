@@ -11,6 +11,10 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -71,10 +75,23 @@ public final class MainActivity extends Activity {
     private boolean receiverRegistered;
     private boolean recommendationPending;
     private OrientationEventListener orientationListener;
+    private SensorManager sensorManager;
+    private Sensor accelerometer;
     private int orientationCandidate = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private long orientationCandidateSince;
     private PreferenceStore preferenceStore;
     private RadioApiClient apiClient;
+
+    private final SensorEventListener accelerometerListener = new SensorEventListener() {
+        @Override public void onSensorChanged(SensorEvent event) {
+            if (event.values.length < 2) return;
+            int target = requestedOrientationForGravity(event.values[0], event.values[1]);
+            if (target == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) return;
+            applyStableOrientation(target);
+        }
+
+        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    };
 
     private final BroadcastReceiver playbackReceiver = new BroadcastReceiver() {
         @Override
@@ -105,14 +122,16 @@ public final class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         preferenceStore = new PreferenceStore(this);
         apiClient = new RadioApiClient();
-        ArrayList<Episode> initialEpisodes = DemoEpisodes.personalized(this);
-        currentEpisode = initialEpisodes.isEmpty() ? null : initialEpisodes.get(0);
+        currentEpisode = null;
 
         bindViews();
         bindActions();
         renderEpisode();
         configurePhysicalOrientation();
         requestNotificationPermissionIfNeeded();
+        if (savedInstanceState == null) {
+            sendPlaybackAction(RadioPlaybackService.ACTION_START_NEW_SESSION);
+        }
     }
 
     private void bindViews() {
@@ -131,6 +150,8 @@ public final class MainActivity extends Activity {
         voicePresetButton = findViewById(R.id.voicePresetButton);
         musicMixSwitch = findViewById(R.id.musicMixSwitch);
         musicMixSwitch.setChecked(preferenceStore.isMusicMixEnabled());
+        TextView versionText = findViewById(R.id.versionText);
+        versionText.setText("Версия " + BuildConfig.VERSION_NAME + " · Android/Android Auto");
         renderVoicePreset();
     }
 
@@ -472,18 +493,24 @@ public final class MainActivity extends Activity {
         if (orientationListener != null && orientationListener.canDetectOrientation()) {
             orientationListener.enable();
         }
+        if (sensorManager != null && accelerometer != null) {
+            sensorManager.registerListener(
+                    accelerometerListener, accelerometer, SensorManager.SENSOR_DELAY_UI);
+        }
         readMusicTrack();
     }
 
     @Override
     protected void onPause() {
         if (orientationListener != null) orientationListener.disable();
+        if (sensorManager != null) sensorManager.unregisterListener(accelerometerListener);
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
         if (orientationListener != null) orientationListener.disable();
+        if (sensorManager != null) sensorManager.unregisterListener(accelerometerListener);
         super.onDestroy();
     }
 
@@ -494,21 +521,27 @@ public final class MainActivity extends Activity {
      */
     private void configurePhysicalOrientation() {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        accelerometer = sensorManager == null
+                ? null : sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         orientationListener = new OrientationEventListener(this) {
             @Override public void onOrientationChanged(int orientation) {
                 if (orientation == ORIENTATION_UNKNOWN) return;
-                int target = requestedOrientationForDegrees(orientation);
-                long now = SystemClock.elapsedRealtime();
-                if (target != orientationCandidate) {
-                    orientationCandidate = target;
-                    orientationCandidateSince = now;
-                    return;
-                }
-                if (now - orientationCandidateSince < 350L
-                        || getRequestedOrientation() == target) return;
-                setRequestedOrientation(target);
+                applyStableOrientation(requestedOrientationForDegrees(orientation));
             }
         };
+    }
+
+    private void applyStableOrientation(int target) {
+        long now = SystemClock.elapsedRealtime();
+        if (target != orientationCandidate) {
+            orientationCandidate = target;
+            orientationCandidateSince = now;
+            return;
+        }
+        if (now - orientationCandidateSince < 450L
+                || getRequestedOrientation() == target) return;
+        setRequestedOrientation(target);
     }
 
     static int requestedOrientationForDegrees(int degrees) {
@@ -523,6 +556,23 @@ public final class MainActivity extends Activity {
             return ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
         }
         return ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+    }
+
+    static int requestedOrientationForGravity(float x, float y) {
+        float absoluteX = Math.abs(x);
+        float absoluteY = Math.abs(y);
+        if (Math.max(absoluteX, absoluteY) < 5.5f
+                || Math.abs(absoluteX - absoluteY) < 1.4f) {
+            return ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        }
+        if (absoluteY > absoluteX) {
+            return y >= 0f
+                    ? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    : ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+        }
+        return x >= 0f
+                ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                : ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
     }
 
     private void readMusicTrack() {

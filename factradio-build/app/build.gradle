@@ -13,9 +13,9 @@ android {
     defaultConfig {
         applicationId "com.factradio.app"
         minSdk 26
-        targetSdk 29
-        versionCode 11
-        versionName "0.6.1"
+        targetSdk 35
+        versionCode 12
+        versionName "0.7.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField "String", "RADIO_API_BASE_URL", "\"${radioApiBaseUrl}\""
@@ -27,8 +27,6 @@ android {
     }
 
     lint {
-        // Private sideloaded build: target 29 intentionally keeps v1 signing
-        // installable after the backend token is injected outside public CI.
         disable 'ExpiredTargetSdkVersion'
     }
 

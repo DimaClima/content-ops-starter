@@ -46,6 +46,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
@@ -63,6 +64,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
     public static final String ACTION_RELOAD_VOICE = "com.example.factradio.RELOAD_VOICE";
     public static final String ACTION_WAIT_FOR_STORY = "com.example.factradio.WAIT_FOR_STORY";
     public static final String ACTION_CANCEL_WAIT_FOR_STORY = "com.example.factradio.CANCEL_WAIT_FOR_STORY";
+    public static final String ACTION_START_NEW_SESSION = "com.example.factradio.START_NEW_SESSION";
 
     public static final String EXTRA_POSITION = "position";
     public static final String EXTRA_DURATION = "duration";
@@ -76,6 +78,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private static final int NOTIFICATION_ID = 101;
     private static final String CHANNEL_ID = "fact_radio_playback";
+    private static final String MEDIA_ID_NEW_STORY = "factradio:new";
+    private static final String ROOT_ID = "factradio_root";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService cloudAudioExecutor = Executors.newSingleThreadExecutor();
@@ -134,9 +138,9 @@ public final class RadioPlaybackService extends MediaBrowserService {
         preferenceStore = new PreferenceStore(this);
         renderClient = new PodcastRenderClient();
         storyClient = new RadioApiClient();
-        queue = DemoEpisodes.personalized(this);
-        currentIndex = 0;
-        current = queue.isEmpty() ? null : queue.get(0);
+        queue = new ArrayList<>();
+        currentIndex = -1;
+        current = null;
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         IntentFilter musicFilter = new IntentFilter(YandexNotificationListener.ACTION_TRACK_CHANGED);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -196,6 +200,9 @@ public final class RadioPlaybackService extends MediaBrowserService {
             case ACTION_CANCEL_WAIT_FOR_STORY:
                 cancelGenerationWaitMusic();
                 break;
+            case ACTION_START_NEW_SESSION:
+                startNewSession(false);
+                break;
             default:
                 break;
         }
@@ -204,14 +211,24 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     @Override
     public BrowserRoot onGetRoot(String clientPackageName, int clientUid, Bundle rootHints) {
-        return new BrowserRoot("factradio_root", null);
+        return new BrowserRoot(ROOT_ID, null);
     }
 
     @Override
     public void onLoadChildren(String parentId, Result<List<MediaBrowser.MediaItem>> result) {
         ArrayList<MediaBrowser.MediaItem> items = new ArrayList<>();
-        if ("factradio_root".equals(parentId)) {
+        if (ROOT_ID.equals(parentId)) {
+            MediaDescription fresh = new MediaDescription.Builder()
+                    .setMediaId(MEDIA_ID_NEW_STORY)
+                    .setTitle("Новый выпуск")
+                    .setSubtitle(recommendationPending
+                            ? "ФактРадио уже ищет и проверяет факты"
+                            : "Создать свежий документальный рассказ")
+                    .setDescription("Новая тема по вашим интересам без повтора недавних историй")
+                    .build();
+            items.add(new MediaBrowser.MediaItem(fresh, MediaBrowser.MediaItem.FLAG_PLAYABLE));
             for (Episode episode : queue) {
+                if (!preferenceStore.canPlayNow(episode)) continue;
                 MediaDescription description = new MediaDescription.Builder()
                         .setMediaId(episode.getId())
                         .setTitle(episode.getTitle())
@@ -267,6 +284,11 @@ public final class RadioPlaybackService extends MediaBrowserService {
             broadcastState();
             return;
         }
+        if (current == null) {
+            waitingForFreshStory = true;
+            requestFreshStory(defaultAutomaticQuery(), true, 0);
+            return;
+        }
         synthesizeCurrent();
     }
 
@@ -283,31 +305,39 @@ public final class RadioPlaybackService extends MediaBrowserService {
     }
 
     private void next() {
-        if (queue.isEmpty()) return;
         if (musicBreak) {
             stopMusicBreak();
-        } else {
+        } else if (current != null) {
             preferenceStore.recordSkipped(current);
         }
         advanceStory();
     }
 
     private void advanceStory() {
-        if (queue.isEmpty() || currentIndex + 1 >= queue.size()) {
-            pendingAutoplay = true;
-            waitingForFreshStory = true;
-            releasePlayer();
-            requestPersonalizedRecommendation(true);
-            updatePlaybackState();
-            updateNotification();
-            broadcastState();
-            return;
-        }
         pendingAutoplay = true;
-        currentIndex++;
-        current = queue.get(currentIndex);
+        waitingForFreshStory = true;
+        current = null;
+        currentIndex = -1;
         releasePlayer();
-        synthesizeCurrent();
+        requestFreshStory(defaultAutomaticQuery(), true, 0);
+        if (preferenceStore.isMusicMixEnabled() && !musicBreak) startGenerationWaitMusic();
+        updatePlaybackState();
+        updateNotification();
+        broadcastState();
+    }
+
+    private void startNewSession(boolean autoplay) {
+        if (musicBreak) stopMusicBreak();
+        if (current != null && isPlaybackActive()) preferenceStore.recordSkipped(current);
+        pendingAutoplay = autoplay;
+        waitingForFreshStory = true;
+        current = null;
+        currentIndex = -1;
+        releasePlayer();
+        requestFreshStory(defaultAutomaticQuery(), autoplay, 0);
+        updatePlaybackState();
+        updateNotification();
+        broadcastState();
     }
 
     private void replay() {
@@ -412,16 +442,35 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
             @Override public void onError(String message) {
                 cloudRenderPending = false;
-                pendingAutoplay = false;
                 android.widget.Toast.makeText(
                         RadioPlaybackService.this,
-                        message + ". Выберите «Системный голос · офлайн».",
+                        message + ". Включаю запасной голос телефона.",
                         android.widget.Toast.LENGTH_LONG
                 ).show();
-                updateNotification();
-                broadcastState();
+                synthesizeSystemCurrent();
             }
         });
+    }
+
+    private void synthesizeSystemCurrent() {
+        if (!pendingAutoplay || current == null) return;
+        if (!ttsReady) {
+            updateNotification();
+            broadcastState();
+            return;
+        }
+        releasePlayer();
+        tts.stop();
+        cleanupSynthesisParts();
+        synthesisToken = current.getId() + "-fallback-" + System.nanoTime();
+        synthesisDialogue = current.getDialogue().isEmpty()
+                ? java.util.Collections.singletonList(
+                        new DialogueLine(DialogueLine.MALE, current.getScript()))
+                : current.getDialogue();
+        synthesisIndex = 0;
+        synthesizeNextDialogueLine();
+        updateNotification();
+        broadcastState();
     }
 
     private Episode copyWithAudio(Episode source, String audioUrl) {
@@ -521,7 +570,6 @@ public final class RadioPlaybackService extends MediaBrowserService {
             } catch (Exception error) {
                 handler.post(() -> {
                     if (!token.equals(cloudDownloadToken)) return;
-                    pendingAutoplay = false;
                     String detail = error.getMessage();
                     android.widget.Toast.makeText(
                             RadioPlaybackService.this,
@@ -530,8 +578,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
                                     : "Не удалось скачать облачный голос: " + detail,
                             android.widget.Toast.LENGTH_LONG
                     ).show();
-                    updateNotification();
-                    broadcastState();
+                    if (current != null) current = copyWithAudio(current, "");
+                    requestCloudRender(preferenceStore.getVoicePreset());
                 });
             }
         });
@@ -571,7 +619,6 @@ public final class RadioPlaybackService extends MediaBrowserService {
 
     private void onStoryCompleted() {
         preferenceStore.recordCompleted(current);
-        requestPersonalizedRecommendation();
         releasePlayer();
         abandonAudioFocus();
         if (preferenceStore.isMusicMixEnabled() && startMusicBreak()) return;
@@ -706,6 +753,10 @@ public final class RadioPlaybackService extends MediaBrowserService {
             @Override public void onRewind() { replay(); }
             @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
                 if (mediaId == null) return;
+                if (MEDIA_ID_NEW_STORY.equals(mediaId)) {
+                    startNewSession(true);
+                    return;
+                }
                 for (int index = 0; index < queue.size(); index++) {
                     if (!mediaId.equals(queue.get(index).getId())) continue;
                     currentIndex = index;
@@ -717,8 +768,16 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 }
             }
             @Override public void onPlayFromSearch(String query, Bundle extras) {
-                if (queue.isEmpty()) return;
                 String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+                if (!normalized.isEmpty()) {
+                    pendingAutoplay = true;
+                    waitingForFreshStory = true;
+                    current = null;
+                    currentIndex = -1;
+                    releasePlayer();
+                    requestFreshStory(query.trim(), true, 0);
+                    return;
+                }
                 for (int index = 0; index < queue.size(); index++) {
                     Episode episode = queue.get(index);
                     if (!normalized.isEmpty()
@@ -733,6 +792,7 @@ public final class RadioPlaybackService extends MediaBrowserService {
                     synthesizeCurrent();
                     return;
                 }
+                startNewSession(true);
             }
         });
         mediaSession.setActive(true);
@@ -747,10 +807,12 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 | PlaybackState.ACTION_SKIP_TO_NEXT
                 | PlaybackState.ACTION_SEEK_TO
                 | PlaybackState.ACTION_REWIND;
+        int stateCode = recommendationPending || waitingForFreshStory
+                ? PlaybackState.STATE_BUFFERING
+                : playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
         PlaybackState state = new PlaybackState.Builder()
                 .setActions(actions)
-                .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED,
-                        position, playing ? 1f : 0f)
+                .setState(stateCode, position, playing ? 1f : 0f)
                 .build();
         mediaSession.setPlaybackState(state);
         updateMediaMetadata();
@@ -775,8 +837,11 @@ public final class RadioPlaybackService extends MediaBrowserService {
             metadata.putString(MediaMetadata.METADATA_KEY_ALBUM, current.getCategory());
             metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, currentDuration());
         } else {
-            metadata.putString(MediaMetadata.METADATA_KEY_TITLE, "ФактРадио");
-            metadata.putString(MediaMetadata.METADATA_KEY_ARTIST, "Новые выпуски готовятся");
+            metadata.putString(MediaMetadata.METADATA_KEY_MEDIA_ID, MEDIA_ID_NEW_STORY);
+            metadata.putString(MediaMetadata.METADATA_KEY_TITLE,
+                    recommendationPending || waitingForFreshStory
+                            ? "Готовлю новый выпуск…" : "Новый выпуск");
+            metadata.putString(MediaMetadata.METADATA_KEY_ARTIST, "ФактРадио");
         }
         mediaSession.setMetadata(metadata.build());
     }
@@ -924,73 +989,136 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 episodes.removeIf(episode -> !preferenceStore.canPlayNow(episode));
                 Collections.shuffle(episodes);
                 episodes.sort(Comparator.comparingInt(preferenceStore::score).reversed());
-                int insertion = Math.min(currentIndex + 1, queue.size());
                 for (Episode episode : episodes) {
                     if (containsEpisode(episode.getId())) continue;
-                    queue.add(insertion++, episode);
+                    queue.add(episode);
                 }
-                if (current == null && !queue.isEmpty()) {
-                    currentIndex = 0;
-                    current = queue.get(0);
+                // Built-in stories are offline fallbacks only. They are appended
+                // after cloud items and never selected as the new session opener.
+                for (Episode episode : DemoEpisodes.personalized(RadioPlaybackService.this)) {
+                    if (!containsEpisode(episode.getId())) queue.add(episode);
                 }
-                notifyChildrenChanged("factradio_root");
+                notifyChildrenChanged(ROOT_ID);
                 updatePlaybackState();
                 broadcastState();
             }
 
             @Override public void onError(String message) {
-                // Встроенные выпуски остаются доступными без облачной базы.
+                for (Episode episode : DemoEpisodes.personalized(RadioPlaybackService.this)) {
+                    if (!containsEpisode(episode.getId())) queue.add(episode);
+                }
+                notifyChildrenChanged(ROOT_ID);
             }
         });
     }
 
     private void requestPersonalizedRecommendation() {
-        requestPersonalizedRecommendation(false);
+        requestFreshStory(defaultAutomaticQuery(), false, 0);
     }
 
     private void requestPersonalizedRecommendation(boolean queueIsEmpty) {
-        if (recommendationPending || !storyClient.isConfigured()
-                || !preferenceStore.reserveAutomaticRecommendation(queueIsEmpty)) {
-            if (queueIsEmpty) {
-                waitingForFreshStory = false;
-                pendingAutoplay = false;
-                broadcastState();
-            }
+        requestFreshStory(defaultAutomaticQuery(), queueIsEmpty, 0);
+    }
+
+    private String defaultAutomaticQuery() {
+        return "Подбери совершенно новый документальный выпуск по моим интересам: HVAC, "
+                + "энергетика и технологии, новости Испании, мировые новости, история мест, "
+                + "история изобретений и биографии, Аликанте и Торревьеха, наука и открытия. "
+                + "Выбери тему самостоятельно и не повторяй недавние выпуски.";
+    }
+
+    private void requestFreshStory(String query, boolean autoplay, int attempt) {
+        pendingAutoplay = pendingAutoplay || autoplay;
+        waitingForFreshStory = true;
+        if (recommendationPending) {
+            updatePlaybackState();
+            broadcastState();
+            return;
+        }
+        if (!storyClient.isConfigured() || !preferenceStore.reserveAutomaticRecommendation(true)) {
+            useOfflineFallback("Сервер нового выпуска не настроен");
             return;
         }
         recommendationPending = true;
-        String query = "Подбери новый документальный выпуск по моим интересам: HVAC, энергетика и технологии, "
-                + "новости Испании, мировые новости, история мест, история изобретений и биографии, "
-                + "Аликанте и Торревьеха, наука и открытия. Не повторяй недавние темы.";
         storyClient.requestStory(query, preferenceStore.compactProfile(),
-                preferenceStore.getVoicePreset(), new RadioApiClient.Callback() {
+                preferenceStore.getVoicePreset(), UUID.randomUUID().toString(),
+                preferenceStore.getRecentTitles(), new RadioApiClient.Callback() {
             @Override public void onSuccess(Episode episode) {
                 recommendationPending = false;
                 if (containsEpisode(episode.getId()) || !preferenceStore.canPlayNow(episode)) {
-                    waitingForFreshStory = false;
-                    pendingAutoplay = false;
-                    broadcastState();
+                    if (attempt < 1) requestFreshStory(query, autoplay, attempt + 1);
+                    else useOfflineFallback("Сервер дважды предложил недавнюю историю");
                     return;
                 }
-                int insertion = Math.min(currentIndex + 1, queue.size());
-                queue.add(insertion, episode);
-                if (waitingForFreshStory) {
-                    waitingForFreshStory = false;
-                    currentIndex = insertion;
-                    current = episode;
-                    synthesizeCurrent();
-                }
-                notifyChildrenChanged("factradio_root");
+                queue.add(0, episode);
+                currentIndex = 0;
+                current = episode;
+                waitingForFreshStory = false;
+                if (generationWaitMusic) stopMusicBreak();
+                if (pendingAutoplay) synthesizeCurrent();
+                notifyChildrenChanged(ROOT_ID);
+                updatePlaybackState();
+                updateNotification();
                 broadcastState();
             }
 
             @Override public void onError(String message) {
                 recommendationPending = false;
-                waitingForFreshStory = false;
-                pendingAutoplay = false;
-                broadcastState();
+                if (attempt < 1) {
+                    requestFreshStory(query, autoplay, attempt + 1);
+                    return;
+                }
+                useOfflineFallback(message);
             }
         });
+        updatePlaybackState();
+        updateNotification();
+        notifyChildrenChanged(ROOT_ID);
+        broadcastState();
+    }
+
+    private void useOfflineFallback(String message) {
+        recommendationPending = false;
+        waitingForFreshStory = false;
+        if (generationWaitMusic) stopMusicBreak();
+        Episode fallback = null;
+        for (Episode episode : queue) {
+            if (preferenceStore.canPlayNow(episode)) {
+                fallback = episode;
+                break;
+            }
+        }
+        if (fallback == null) {
+            for (Episode episode : DemoEpisodes.personalized(this)) {
+                if (preferenceStore.canPlayNow(episode)) {
+                    fallback = episode;
+                    break;
+                }
+            }
+        }
+        if (fallback != null) {
+            current = fallback;
+            currentIndex = queue.indexOf(fallback);
+            if (currentIndex < 0) {
+                queue.add(0, fallback);
+                currentIndex = 0;
+            }
+            android.widget.Toast.makeText(this,
+                    "Новый выпуск временно недоступен. Включаю неповторённый запасной.",
+                    android.widget.Toast.LENGTH_LONG).show();
+            if (pendingAutoplay) synthesizeCurrent();
+        } else {
+            pendingAutoplay = false;
+            PlaybackState errorState = new PlaybackState.Builder()
+                    .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_SKIP_TO_NEXT)
+                    .setErrorMessage(message == null ? "Не удалось создать новый выпуск" : message)
+                    .setState(PlaybackState.STATE_ERROR, 0, 0f)
+                    .build();
+            mediaSession.setPlaybackState(errorState);
+        }
+        notifyChildrenChanged(ROOT_ID);
+        updateNotification();
+        broadcastState();
     }
 
     private boolean containsEpisode(String episodeId) {

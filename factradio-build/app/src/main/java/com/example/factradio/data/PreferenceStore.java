@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 
 import com.example.factradio.model.Episode;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -23,14 +22,14 @@ public final class PreferenceStore {
     private static final String TAG_PREFIX = "tag_score_";
     private static final String EPISODE_PREFIX = "episode_rating_";
     private static final String LAST_PLAYED_PREFIX = "episode_last_played_";
+    private static final String TITLE_RATING_PREFIX = "title_rating_";
+    private static final String TITLE_LAST_PLAYED_PREFIX = "title_last_played_";
     private static final String MUSIC_PREFIX = "music_rating_";
     private static final String COMPLETED_PREFIX = "completed_tag_";
     private static final String SKIPPED_PREFIX = "skipped_tag_";
     private static final String RECENT_TITLES = "recent_episode_titles";
     private static final String HISTORY_MIGRATED_AT = "history_migrated_at";
     private static final String COMPLETED_TOTAL = "completed_episode_total";
-    private static final String AUTO_DAY = "auto_generation_day";
-    private static final String AUTO_DAY_COUNT = "auto_generation_day_count";
     private static final String VOICE_PRESET = "voice_preset";
     private static final String MUSIC_MIX_ENABLED = "music_mix_enabled";
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
@@ -55,6 +54,7 @@ public final class PreferenceStore {
         int delta = normalized - previous;
         SharedPreferences.Editor editor = preferences.edit();
         editor.putInt(EPISODE_PREFIX + episode.getId(), normalized);
+        editor.putInt(TITLE_RATING_PREFIX + titleKey(episode.getTitle()), normalized);
 
         for (String tag : episode.getTags()) {
             String key = TAG_PREFIX + normalize(tag);
@@ -66,6 +66,8 @@ public final class PreferenceStore {
     }
 
     public int getEpisodeRating(Episode episode) {
+        String ratingKey = TITLE_RATING_PREFIX + titleKey(episode.getTitle());
+        if (preferences.contains(ratingKey)) return preferences.getInt(ratingKey, 0);
         return preferences.getInt(EPISODE_PREFIX + episode.getId(), 0);
     }
 
@@ -80,6 +82,8 @@ public final class PreferenceStore {
     public long getLastPlayedAt(Episode episode) {
         if (episode == null) return 0L;
         long saved = preferences.getLong(LAST_PLAYED_PREFIX + episode.getId(), 0L);
+        if (saved > 0L) return saved;
+        saved = preferences.getLong(TITLE_LAST_PLAYED_PREFIX + titleKey(episode.getTitle()), 0L);
         if (saved > 0L) return saved;
         return wasInLegacyRecentList(episode.getTitle())
                 ? preferences.getLong(HISTORY_MIGRATED_AT, 0L)
@@ -122,6 +126,7 @@ public final class PreferenceStore {
         }
         rememberTitle(editor, episode.getTitle());
         editor.putLong(LAST_PLAYED_PREFIX + episode.getId(), System.currentTimeMillis());
+        editor.putLong(TITLE_LAST_PLAYED_PREFIX + titleKey(episode.getTitle()), System.currentTimeMillis());
         editor.putInt(COMPLETED_TOTAL, preferences.getInt(COMPLETED_TOTAL, 0) + 1);
         editor.apply();
     }
@@ -132,6 +137,7 @@ public final class PreferenceStore {
         SharedPreferences.Editor editor = preferences.edit();
         rememberTitle(editor, episode.getTitle());
         editor.putLong(LAST_PLAYED_PREFIX + episode.getId(), System.currentTimeMillis());
+        editor.putLong(TITLE_LAST_PLAYED_PREFIX + titleKey(episode.getTitle()), System.currentTimeMillis());
         editor.apply();
     }
 
@@ -140,16 +146,8 @@ public final class PreferenceStore {
     }
 
     public boolean reserveAutomaticRecommendation(boolean queueIsEmpty) {
-        int completed = preferences.getInt(COMPLETED_TOTAL, 0);
-        if (!queueIsEmpty && (completed < 1 || completed % 2 != 0)) return false;
-        String today = LocalDate.now().toString();
-        String savedDay = preferences.getString(AUTO_DAY, "");
-        int count = today.equals(savedDay) ? preferences.getInt(AUTO_DAY_COUNT, 0) : 0;
-        if (count >= 6) return false;
-        preferences.edit()
-                .putString(AUTO_DAY, today)
-                .putInt(AUTO_DAY_COUNT, count + 1)
-                .apply();
+        // The server owns the monthly cost limit. The Android client must never
+        // strand the listener at the end of a five-item queue.
         return true;
     }
 
@@ -162,6 +160,7 @@ public final class PreferenceStore {
         }
         rememberTitle(editor, episode.getTitle());
         editor.putLong(LAST_PLAYED_PREFIX + episode.getId(), System.currentTimeMillis());
+        editor.putLong(TITLE_LAST_PLAYED_PREFIX + titleKey(episode.getTitle()), System.currentTimeMillis());
         editor.apply();
     }
 
@@ -182,6 +181,17 @@ public final class PreferenceStore {
                     + recent.replace('\u001f', ';'));
         }
         return join(sections, ". ");
+    }
+
+    public ArrayList<String> getRecentTitles() {
+        ArrayList<String> titles = new ArrayList<>();
+        String recent = preferences.getString(RECENT_TITLES, "");
+        if (recent == null || recent.isEmpty()) return titles;
+        for (String value : recent.split(String.valueOf('\u001f'))) {
+            String clean = value.trim();
+            if (!clean.isEmpty()) titles.add(clean);
+        }
+        return titles;
     }
 
     public String getVoicePreset() {
@@ -223,7 +233,7 @@ public final class PreferenceStore {
         if (previous != null && !previous.isEmpty()) {
             for (String value : previous.split(String.valueOf('\u001f'))) {
                 if (!value.trim().isEmpty()) titles.add(value.trim());
-                if (titles.size() >= 12) break;
+                if (titles.size() >= 100) break;
             }
         }
         editor.putString(RECENT_TITLES, join(new ArrayList<>(titles), "\u001f"));
@@ -299,5 +309,9 @@ public final class PreferenceStore {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static String titleKey(String title) {
+        return Integer.toHexString(normalize(title).hashCode());
     }
 }

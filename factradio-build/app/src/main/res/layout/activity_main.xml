@@ -24,6 +24,15 @@
             android:letterSpacing="0.18" />
 
         <TextView
+            android:id="@+id/versionText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Версия 0.7.0 · Android/Android Auto"
+            android:textColor="@color/muted"
+            android:textSize="11sp" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -61,7 +70,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Эфир готов к запуску"
+                android:text="Готовлю новый выпуск…"
                 android:textColor="@color/ink"
                 android:textSize="24sp"
                 android:textStyle="bold" />
@@ -72,7 +81,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:maxLines="4"
-                android:text="Нажмите «Слушать». Приложение начнёт с проверенных демонстрационных рассказов."
+                android:text="При каждом новом запуске радио создаётся свежая история по вашим темам."
                 android:textColor="@color/muted"
                 android:textSize="15sp" />
 

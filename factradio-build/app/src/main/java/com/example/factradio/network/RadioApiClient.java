@@ -19,6 +19,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,6 +46,13 @@ public final class RadioApiClient {
     }
 
     public void requestStory(String spokenQuery, String profile, String voicePreset, Callback callback) {
+        requestStory(spokenQuery, profile, voicePreset, UUID.randomUUID().toString(),
+                new ArrayList<>(), callback);
+    }
+
+    public void requestStory(String spokenQuery, String profile, String voicePreset,
+                             String requestNonce, List<String> excludedTitles,
+                             Callback callback) {
         if (!isConfigured()) {
             callback.onError("Сервер генерации пока не настроен");
             return;
@@ -64,6 +73,10 @@ public final class RadioApiClient {
                         .put("query", spokenQuery)
                         .put("profile", profile == null ? "" : profile)
                         .put("voicePreset", voicePreset == null ? "duo_best" : voicePreset)
+                        .put("requestNonce", requestNonce == null || requestNonce.trim().isEmpty()
+                                ? UUID.randomUUID().toString() : requestNonce)
+                        .put("excludedTitles", new JSONArray(
+                                excludedTitles == null ? new ArrayList<>() : excludedTitles))
                         .put("language", "ru")
                         .put("targetMinutes", 3);
                 byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
