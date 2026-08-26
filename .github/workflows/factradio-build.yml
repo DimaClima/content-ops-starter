@@ -1,4 +1,4 @@
-name: FactRadio 0.7.1 verified Android build
+name: FactRadio 0.7.2 verified Android build
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
           test -s "$APK"
           "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
           "$AAPT" dump xmltree --file AndroidManifest.xml "$APK" > app/build/outputs/apk/release/manifest.txt
-          grep -q "package: name='com.factradio.app' versionCode='13' versionName='0.7.1'" app/build/outputs/apk/release/badging.txt
+          grep -q "package: name='com.factradio.app' versionCode='14' versionName='0.7.2'" app/build/outputs/apk/release/badging.txt
           grep -q "targetSdkVersion:'35'" app/build/outputs/apk/release/badging.txt
           grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
           grep -q 'android.media.browse.MediaBrowserService' app/build/outputs/apk/release/manifest.txt
@@ -68,7 +68,22 @@ jobs:
       - name: Upload verified unsigned source APK
         uses: actions/upload-artifact@v4
         with:
-          name: factradio-071-unsigned-source-build
+          name: factradio-072-unsigned-source-build
           path: factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Export official Android signing tools
+        run: |
+          mkdir -p factradio-build/app/build/outputs/android-tools
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" factradio-build/app/build/outputs/android-tools/
+          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" factradio-build/app/build/outputs/android-tools/
+          chmod +x factradio-build/app/build/outputs/android-tools/zipalign
+
+      - name: Upload official Android signing tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-tools-35
+          path: factradio-build/app/build/outputs/android-tools/
           if-no-files-found: error
           retention-days: 1

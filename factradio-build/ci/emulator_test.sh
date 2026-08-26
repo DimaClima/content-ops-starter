@@ -20,7 +20,7 @@ adb install -r "$APK"
 adb install -r "$TEST_APK"
 adb shell pm grant com.factradio.app android.permission.POST_NOTIFICATIONS || true
 adb shell am start -W -n com.factradio.app/com.example.factradio.MainActivity
-adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.7.1'
+adb shell dumpsys package com.factradio.app | grep -q 'versionName=0.7.2'
 sleep 12
 adb shell pidof com.factradio.app >/dev/null
 
