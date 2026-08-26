@@ -1,0 +1,30 @@
+name: Export official Android 35 tools
+
+on:
+  push:
+    branches:
+      - codex/factradio-061-fix-20260824
+
+permissions:
+  contents: read
+
+jobs:
+  export-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect tools
+        run: |
+          mkdir -p android-tools/lib64
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" android-tools/
+          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" android-tools/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib64/libc++.so" android-tools/lib64/
+          chmod +x android-tools/zipalign
+
+      - name: Upload tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-tools-35-complete
+          path: android-tools/
+          if-no-files-found: error
+          retention-days: 1
