@@ -46,7 +46,7 @@ jobs:
           "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
           "$AAPT" dump xmltree --file AndroidManifest.xml "$APK" > app/build/outputs/apk/release/manifest.txt
           grep -q "package: name='com.factradio.app' versionCode='15' versionName='0.8.0'" app/build/outputs/apk/release/badging.txt
-          grep -q "sdkVersion:'21'" app/build/outputs/apk/release/badging.txt
+          grep -q "minSdkVersion:'21'" app/build/outputs/apk/release/badging.txt
           grep -q "targetSdkVersion:'35'" app/build/outputs/apk/release/badging.txt
           grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
           grep -q 'android.media.browse.MediaBrowserService' app/build/outputs/apk/release/manifest.txt
