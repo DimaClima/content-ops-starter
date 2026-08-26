@@ -1,0 +1,84 @@
+name: FactRadio 0.8.0 universal Android build
+
+on:
+  push:
+    branches:
+      - codex/factradio-061-fix-20260824
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-device-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [21, 24, 31, 35]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Clean build, lint, and test APK
+        working-directory: factradio-build
+        run: |
+          chmod +x gradlew
+          if ! ./gradlew --no-daemon clean assembleRelease lintRelease assembleAndroidTest; then
+            REPORT=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+            test -f "$REPORT" && cat "$REPORT"
+            exit 1
+          fi
+
+      - name: Verify APK identity, orientation, and Android Auto declarations
+        working-directory: factradio-build
+        run: |
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          test -s "$APK"
+          "$AAPT" dump badging "$APK" | tee app/build/outputs/apk/release/badging.txt
+          "$AAPT" dump xmltree --file AndroidManifest.xml "$APK" > app/build/outputs/apk/release/manifest.txt
+          grep -q "package: name='com.factradio.app' versionCode='15' versionName='0.8.0'" app/build/outputs/apk/release/badging.txt
+          grep -q "sdkVersion:'21'" app/build/outputs/apk/release/badging.txt
+          grep -q "targetSdkVersion:'35'" app/build/outputs/apk/release/badging.txt
+          grep -q 'android:screenOrientation(0x0101001e)=10' app/build/outputs/apk/release/manifest.txt
+          grep -q 'android.media.browse.MediaBrowserService' app/build/outputs/apk/release/manifest.txt
+          grep -q 'com.google.android.gms.car.application' app/build/outputs/apk/release/manifest.txt
+          keytool -genkeypair -noprompt -keystore /tmp/install-test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 30 -dname "CN=FactRadio Install Test"
+          cp "$APK" app/build/outputs/apk/release/app-install-test.apk
+          "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled true app/build/outputs/apk/release/app-install-test.apk
+          "$SIGNER" verify --verbose app/build/outputs/apk/release/app-install-test.apk
+          TEST_APK=$(find app/build/outputs/apk/androidTest -name '*-androidTest.apk' | head -1)
+          "$SIGNER" sign --ks /tmp/install-test.jks --ks-pass pass:testpass --key-pass pass:testpass --ks-key-alias test --v1-signing-enabled true --v2-signing-enabled true "$TEST_APK"
+          "$SIGNER" verify --verbose "$TEST_APK"
+
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install, rotate, and run behavior tests on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: sh factradio-build/ci/emulator_test.sh
+
+      - name: Upload verified unsigned source APK
+        if: matrix.api-level == 31
+        uses: actions/upload-artifact@v4
+        with:
+          name: factradio-080-unsigned-source-build
+          path: factradio-build/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1

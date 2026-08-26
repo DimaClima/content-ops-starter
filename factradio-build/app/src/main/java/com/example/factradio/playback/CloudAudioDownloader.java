@@ -34,7 +34,9 @@ final class CloudAudioDownloader {
             if (status < 200 || status >= 300) {
                 throw new IOException("Сервер аудио вернул ошибку " + status);
             }
-            long declaredLength = connection.getContentLengthLong();
+            // getContentLengthLong() appeared only in Android 7.0 (API 24).
+            // The legacy method is enough here because our hard limit is 30 MB.
+            long declaredLength = connection.getContentLength();
             if (declaredLength > MAX_AUDIO_BYTES) {
                 throw new IOException("Аудиофайл слишком большой");
             }
