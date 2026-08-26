@@ -15,10 +15,8 @@ show_crash_log() {
 trap show_crash_log EXIT
 
 app_process_alive() {
-  if ! adb shell ps -A > /tmp/factradio-ps.txt 2>/dev/null; then
-    adb shell ps > /tmp/factradio-ps.txt
-  fi
-  grep -q 'com.factradio.app' /tmp/factradio-ps.txt
+  adb shell dumpsys activity processes > /tmp/factradio-processes.txt
+  grep -q 'com.factradio.app' /tmp/factradio-processes.txt
 }
 
 test -s "$APK"
