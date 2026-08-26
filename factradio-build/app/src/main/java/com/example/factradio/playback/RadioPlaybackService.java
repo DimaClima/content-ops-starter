@@ -549,7 +549,15 @@ public final class RadioPlaybackService extends MediaBrowserService {
     }
 
     private void chooseRussianVoices() {
-        Set<Voice> available = tts.getVoices();
+        Set<Voice> available;
+        try {
+            // Some Android 5 TTS engines throw from getVoices() when their
+            // binder returns a null collection. Keep the engine's default
+            // Russian voice instead of crashing the whole playback service.
+            available = tts.getVoices();
+        } catch (RuntimeException ignored) {
+            return;
+        }
         if (available == null) return;
         ArrayList<Voice> russian = new ArrayList<>();
         for (Voice voice : available) {

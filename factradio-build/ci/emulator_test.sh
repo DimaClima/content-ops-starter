@@ -15,7 +15,10 @@ show_crash_log() {
 trap show_crash_log EXIT
 
 app_process_alive() {
-  adb shell ps | grep -q 'com.factradio.app'
+  if ! adb shell ps -A > /tmp/factradio-ps.txt 2>/dev/null; then
+    adb shell ps > /tmp/factradio-ps.txt
+  fi
+  grep -q 'com.factradio.app' /tmp/factradio-ps.txt
 }
 
 test -s "$APK"
@@ -38,8 +41,9 @@ landscape=0
 attempt=1
 while [ "$attempt" -le 12 ]; do
   adb emu sensor set acceleration 9.81:0:0 >/dev/null
-  if adb shell dumpsys activity activities |
-      grep -Eq 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land '; then
+  adb shell dumpsys activity activities > /tmp/factradio-activity.txt
+  if grep -Eq 'mOrientation=SCREEN_ORIENTATION_.*LANDSCAPE|config=.* land ' \
+      /tmp/factradio-activity.txt; then
     landscape=1
     break
   fi
@@ -55,8 +59,9 @@ sleep 2
 adb shell monkey -p com.factradio.app 1 >/dev/null
 sleep 12
 app_process_alive
-adb shell dumpsys activity activities |
-  grep -q 'com.factradio.app/com.example.factradio.MainActivity'
+adb shell dumpsys activity activities > /tmp/factradio-activity.txt
+grep -q 'com.factradio.app/com.example.factradio.MainActivity' \
+  /tmp/factradio-activity.txt
 
 adb shell am instrument -w \
   com.factradio.app.test/androidx.test.runner.AndroidJUnitRunner \
