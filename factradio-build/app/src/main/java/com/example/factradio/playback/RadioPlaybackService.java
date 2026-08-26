@@ -42,7 +42,6 @@ import com.example.factradio.network.RadioApiClient;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -558,10 +557,15 @@ public final class RadioPlaybackService extends MediaBrowserService {
                 russian.add(voice);
             }
         }
-        Collections.sort(russian, Comparator
-                .comparingInt(Voice::getQuality).reversed()
-                .thenComparing(voice -> voice.isNetworkConnectionRequired() ? 0 : 1)
-                .thenComparing(Voice::getName));
+        Collections.sort(russian, (left, right) -> {
+            int quality = Integer.compare(right.getQuality(), left.getQuality());
+            if (quality != 0) return quality;
+            int network = Integer.compare(
+                    left.isNetworkConnectionRequired() ? 0 : 1,
+                    right.isNetworkConnectionRequired() ? 0 : 1);
+            if (network != 0) return network;
+            return left.getName().compareTo(right.getName());
+        });
         if (!russian.isEmpty()) maleVoice = russian.get(0);
         if (russian.size() > 1) femaleVoice = russian.get(1);
         else femaleVoice = maleVoice;
@@ -1011,8 +1015,8 @@ public final class RadioPlaybackService extends MediaBrowserService {
                     if (!preferenceStore.canPlayNow(episodes.get(index))) episodes.remove(index);
                 }
                 Collections.shuffle(episodes);
-                Collections.sort(episodes,
-                        Comparator.comparingInt(preferenceStore::score).reversed());
+                Collections.sort(episodes, (left, right) -> Integer.compare(
+                        preferenceStore.score(right), preferenceStore.score(left)));
                 for (Episode episode : episodes) {
                     if (containsEpisode(episode.getId())) continue;
                     queue.add(episode);

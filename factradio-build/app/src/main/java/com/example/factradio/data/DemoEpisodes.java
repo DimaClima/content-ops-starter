@@ -8,7 +8,6 @@ import com.example.factradio.model.Source;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Collections;
 import java.util.List;
 
@@ -22,7 +21,8 @@ public final class DemoEpisodes {
             if (store.canPlayNow(episode)) episodes.add(episode);
         }
         Collections.shuffle(episodes);
-        Collections.sort(episodes, Comparator.comparingInt(store::score).reversed());
+        Collections.sort(episodes, (left, right) ->
+                Integer.compare(store.score(right), store.score(left)));
         return episodes;
     }
 

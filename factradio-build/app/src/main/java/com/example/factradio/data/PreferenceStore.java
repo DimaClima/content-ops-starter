@@ -7,7 +7,6 @@ import com.example.factradio.model.Episode;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -258,9 +257,9 @@ public final class PreferenceStore {
             if ((positive && score <= 0) || (!positive && score >= 0)) continue;
             stats.add(new TagStat(readableTag(entry.getKey().substring(prefix.length())), score));
         }
-        Collections.sort(stats, positive
-                ? Comparator.comparingInt((TagStat value) -> value.score).reversed()
-                : Comparator.comparingInt(value -> value.score));
+        Collections.sort(stats, (left, right) -> positive
+                ? Integer.compare(right.score, left.score)
+                : Integer.compare(left.score, right.score));
         return formatStats(stats, limit, true);
     }
 
@@ -272,8 +271,7 @@ public final class PreferenceStore {
             if (count > 0) stats.add(new TagStat(
                     readableTag(entry.getKey().substring(prefix.length())), count));
         }
-        Collections.sort(stats,
-                Comparator.comparingInt((TagStat value) -> value.score).reversed());
+        Collections.sort(stats, (left, right) -> Integer.compare(right.score, left.score));
         return formatStats(stats, limit, false);
     }
 
